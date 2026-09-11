@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
 import 'domain/models/sale_invoice.dart';
@@ -52,7 +51,13 @@ class MedBillsApp extends ConsumerWidget {
           seedColor: AppColors.primary,
           primary: AppColors.primary,
         ),
-        textTheme: GoogleFonts.workSansTextTheme(),
+        fontFamily: 'WorkSans',
+        textTheme: const TextTheme(
+          headlineLarge: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+          headlineMedium: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.bold),
+          headlineSmall: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w600),
+          titleLarge: TextStyle(fontFamily: 'Outfit', fontWeight: FontWeight.w600),
+        ),
         appBarTheme: const AppBarTheme(
           backgroundColor: AppColors.surface,
           foregroundColor: Colors.black87,
@@ -502,7 +507,7 @@ class _CheckoutSummaryPanel extends ConsumerWidget {
     final customerName = ref.watch(customerNameProvider);
     final customerPhone = ref.watch(customerPhoneProvider);
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -533,7 +538,7 @@ class _CheckoutSummaryPanel extends ConsumerWidget {
                 ),
             ],
           ),
-          const Spacer(),
+          const SizedBox(height: 16),
           const Divider(),
           _summaryRow('Subtotal', subtotal),
           _summaryRow('GST', gst),
@@ -589,8 +594,16 @@ class _CheckoutSummaryPanel extends ConsumerWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: style),
-          Text('Rs. ${value.toStringAsFixed(2)}', style: style),
+          Flexible(child: Text(label, style: style, overflow: TextOverflow.ellipsis)),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              'Rs. ${value.toStringAsFixed(2)}',
+              style: style,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+            ),
+          ),
         ],
       ),
     );
@@ -617,7 +630,7 @@ class InventoryMasterView extends ConsumerWidget {
       body: ListView.separated(
         padding: const EdgeInsets.all(16),
         itemCount: medicines.length,
-        separatorBuilder: (_, __) => const Divider(),
+        separatorBuilder: (_, _) => const Divider(),
         itemBuilder: (context, index) {
           final m = medicines[index];
           return ListTile(
@@ -715,7 +728,7 @@ class BillHistoryView extends ConsumerWidget {
           : ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: invoices.length,
-              separatorBuilder: (_, __) => const Divider(),
+              separatorBuilder: (_, _) => const Divider(),
               itemBuilder: (context, index) {
                 final invoice = invoices[index];
                 return ListTile(

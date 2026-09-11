@@ -39,13 +39,13 @@ class PdfInvoiceService {
             children: [
               pw.Container(
                 padding: const pw.EdgeInsets.all(12),
-                color: PdfColor.fromInt(0xFF14493D),
+                color: const PdfColor.fromInt(0xFF14493D),
                 child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text(
                       _cleanText('MEDBILLS PHARMACY'),
-                      style: pw.TextStyle(
+                      style: const pw.TextStyle(
                         color: PdfColors.white,
                         fontSize: 18,
                         fontWeight: pw.FontWeight.bold,
@@ -117,7 +117,7 @@ class PdfInvoiceService {
                     pw.Text(
                       _cleanText(
                           'Grand Total: Rs. ${(invoice.grandTotalPaise / 100).toStringAsFixed(2)}'),
-                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14),
+                      style: const pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14),
                     ),
                   ],
                 ),

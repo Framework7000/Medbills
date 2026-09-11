@@ -29,37 +29,85 @@ class GlobalCatalogueRepository {
   static const int totalCatalogueCount = 253973;
 
   static final List<Medicine> _seedMedicines = [
-    _m('med_001', 'Paracetamol 500mg', 'Paracetamol', 'GSK', 'Analgesics', 5.0),
-    _m('med_002', 'Dolo 650', 'Paracetamol', 'Micro Labs', 'Analgesics', 5.0),
-    _m('med_003', 'Crocin Advance', 'Paracetamol', 'GSK', 'Analgesics', 5.0),
-    _m('med_004', 'Augmentin 625 Duo', 'Amoxicillin + Clavulanate', 'GSK', 'Antibiotics', 12.0),
-    _m('med_005', 'Azithromycin 500', 'Azithromycin', 'Cipla', 'Antibiotics', 12.0),
-    _m('med_006', 'Amoxicillin 500mg', 'Amoxicillin', 'Cipla', 'Antibiotics', 12.0),
-    _m('med_007', 'Pan-D', 'Pantoprazole + Domperidone', 'Alkem', 'Gastro', 12.0),
-    _m('med_008', 'Pantoprazole 40mg', 'Pantoprazole', 'Sun Pharma', 'Gastro', 12.0),
-    _m('med_009', 'Metformin 500mg', 'Metformin', 'USV', 'Diabetes', 12.0),
-    _m('med_010', 'Glimepiride 2mg', 'Glimepiride', 'Sanofi', 'Diabetes', 12.0),
-    _m('med_011', 'Telmisartan 40mg', 'Telmisartan', 'Glenmark', 'Cardiac', 12.0),
-    _m('med_012', 'Amlodipine 5mg', 'Amlodipine', 'Zydus', 'Cardiac', 12.0),
-    _m('med_013', 'Atorvastatin 10mg', 'Atorvastatin', 'Ranbaxy', 'Cardiac', 12.0),
-    _m('med_014', 'Cetirizine 10mg', 'Cetirizine', 'Cipla', 'Allergy', 5.0),
-    _m('med_015', 'Montair LC', 'Montelukast + Levocetirizine', 'Cipla', 'Allergy', 5.0),
-    _m('med_016', 'Ibuprofen 400mg', 'Ibuprofen', 'Abbott', 'Analgesics', 12.0),
-    _m('med_017', 'Diclofenac 50mg', 'Diclofenac', 'Novartis', 'Analgesics', 12.0),
-    _m('med_018', 'Omeprazole 20mg', 'Omeprazole', 'Dr. Reddy\'s', 'Gastro', 12.0),
-    _m('med_019', 'Ranitidine 150mg', 'Ranitidine', 'GSK', 'Gastro', 12.0),
-    _m('med_020', 'ORS Powder', 'Oral Rehydration Salts', 'FDC', 'Gastro', 5.0),
-    _m('med_021', 'Vitamin D3 60K', 'Cholecalciferol', 'Mankind', 'Supplements', 5.0),
-    _m('med_022', 'B-Complex Forte', 'Vitamin B Complex', 'Mankind', 'Supplements', 5.0),
-    _m('med_023', 'Calcium + D3', 'Calcium Carbonate', 'Alkem', 'Supplements', 5.0),
-    _m('med_024', 'Ascoril LS Syrup', 'Ambroxol + Levosalbutamol', 'Glenmark', 'Respiratory', 12.0),
-    _m('med_025', 'Levocetirizine 5mg', 'Levocetirizine', 'Torrent', 'Allergy', 5.0),
-    _m('med_026', 'Azee 500', 'Azithromycin', 'Cipla', 'Antibiotics', 12.0),
-    _m('med_027', 'Combiflam', 'Ibuprofen + Paracetamol', 'Sanofi', 'Analgesics', 12.0),
-    _m('med_028', 'Shelcal 500', 'Calcium + Vitamin D3', 'Torrent', 'Supplements', 5.0),
-    _m('med_029', 'Rantac 150', 'Ranitidine', 'J.B. Chemicals', 'Gastro', 12.0),
-    _m('med_030', 'Zerodol-P', 'Aceclofenac + Paracetamol', 'Ipca', 'Analgesics', 12.0),
-    _m('med_031', 'Volini Gel', 'Diclofenac Diethylamine', 'Sun Pharma', 'Topical', 18.0),
+    // OTC analgesics/antipyretics — HSN 30049099, generally 12% GST in India
+    _m('med_001', 'Paracetamol 500mg', 'Paracetamol', 'GSK Pharmaceuticals', 'Analgesics',
+        12.0, ScheduleType.otc, '10 Tablets Strip'),
+    _m('med_002', 'Dolo 650', 'Paracetamol', 'Micro Labs', 'Analgesics',
+        12.0, ScheduleType.otc, '15 Tablets Strip'),
+    _m('med_003', 'Crocin Advance', 'Paracetamol', 'GSK Pharmaceuticals', 'Analgesics',
+        12.0, ScheduleType.otc, '15 Tablets Strip'),
+    _m('med_016', 'Ibuprofen 400mg', 'Ibuprofen', 'Abbott India', 'Analgesics',
+        12.0, ScheduleType.otc, '10 Tablets Strip'),
+    _m('med_017', 'Diclofenac 50mg', 'Diclofenac Sodium', 'Novartis India', 'Analgesics',
+        12.0, ScheduleType.scheduleH, '10 Tablets Strip'),
+    _m('med_027', 'Combiflam', 'Ibuprofen + Paracetamol', 'Sanofi India', 'Analgesics',
+        12.0, ScheduleType.otc, '20 Tablets Strip'),
+    _m('med_030', 'Zerodol-P', 'Aceclofenac + Paracetamol', 'Ipca Laboratories', 'Analgesics',
+        12.0, ScheduleType.scheduleH, '10 Tablets Strip'),
+
+    // Antibiotics — prescription-only (Schedule H)
+    _m('med_004', 'Augmentin 625 Duo', 'Amoxicillin + Clavulanic Acid', 'GSK Pharmaceuticals',
+        'Antibiotics', 12.0, ScheduleType.scheduleH, '10 Tablets Strip'),
+    _m('med_005', 'Azithromycin 500', 'Azithromycin', 'Cipla', 'Antibiotics',
+        12.0, ScheduleType.scheduleH, '5 Tablets Strip'),
+    _m('med_006', 'Amoxicillin 500mg', 'Amoxicillin', 'Cipla', 'Antibiotics',
+        12.0, ScheduleType.scheduleH, '10 Capsules Strip'),
+    _m('med_026', 'Azee 500', 'Azithromycin', 'Cipla', 'Antibiotics',
+        12.0, ScheduleType.scheduleH, '5 Tablets Strip'),
+
+    // Gastro — Pan-D/Pantoprazole widely OTC-sold in India; Ranitidine restricted post-2020 recall
+    _m('med_007', 'Pan-D', 'Pantoprazole + Domperidone', 'Alkem Laboratories', 'Gastro',
+        12.0, ScheduleType.otc, '15 Capsules Strip'),
+    _m('med_008', 'Pantoprazole 40mg', 'Pantoprazole', 'Sun Pharma', 'Gastro',
+        12.0, ScheduleType.otc, '10 Tablets Strip'),
+    _m('med_018', 'Omeprazole 20mg', 'Omeprazole', 'Dr. Reddy\'s Laboratories', 'Gastro',
+        12.0, ScheduleType.otc, '10 Capsules Strip'),
+    _m('med_019', 'Ranitidine 150mg', 'Ranitidine', 'GSK Pharmaceuticals', 'Gastro',
+        12.0, ScheduleType.scheduleH, '10 Tablets Strip'),
+    _m('med_020', 'ORS Powder', 'Oral Rehydration Salts', 'FDC Limited', 'Gastro',
+        5.0, ScheduleType.otc, '1 Sachet'),
+    _m('med_029', 'Rantac 150', 'Ranitidine', 'J.B. Chemicals & Pharmaceuticals', 'Gastro',
+        12.0, ScheduleType.scheduleH, '10 Tablets Strip'),
+
+    // Diabetes — prescription-only
+    _m('med_009', 'Metformin 500mg', 'Metformin Hydrochloride', 'USV Private Limited',
+        'Diabetes', 12.0, ScheduleType.scheduleH, '10 Tablets Strip'),
+    _m('med_010', 'Glimepiride 2mg', 'Glimepiride', 'Sanofi India', 'Diabetes',
+        12.0, ScheduleType.scheduleH, '10 Tablets Strip'),
+
+    // Cardiac — prescription-only
+    _m('med_011', 'Telmisartan 40mg', 'Telmisartan', 'Glenmark Pharmaceuticals', 'Cardiac',
+        12.0, ScheduleType.scheduleH, '10 Tablets Strip'),
+    _m('med_012', 'Amlodipine 5mg', 'Amlodipine Besylate', 'Zydus Lifesciences', 'Cardiac',
+        12.0, ScheduleType.scheduleH, '10 Tablets Strip'),
+    _m('med_013', 'Atorvastatin 10mg', 'Atorvastatin Calcium', 'Sun Pharma', 'Cardiac',
+        12.0, ScheduleType.scheduleH, '10 Tablets Strip'),
+
+    // Allergy — OTC antihistamines
+    _m('med_014', 'Cetirizine 10mg', 'Cetirizine Hydrochloride', 'Cipla', 'Allergy',
+        12.0, ScheduleType.otc, '10 Tablets Strip'),
+    _m('med_015', 'Montair LC', 'Montelukast + Levocetirizine', 'Cipla', 'Allergy',
+        12.0, ScheduleType.otc, '10 Tablets Strip'),
+    _m('med_025', 'Levocetirizine 5mg', 'Levocetirizine Dihydrochloride', 'Torrent Pharmaceuticals',
+        'Allergy', 12.0, ScheduleType.otc, '10 Tablets Strip'),
+
+    // Supplements — OTC, 5% GST slab (life-saving/essential nutrition category)
+    _m('med_021', 'Vitamin D3 60K', 'Cholecalciferol', 'Mankind Pharma', 'Supplements',
+        5.0, ScheduleType.otc, '4 Sachets Box'),
+    _m('med_022', 'B-Complex Forte', 'Vitamin B Complex', 'Mankind Pharma', 'Supplements',
+        5.0, ScheduleType.otc, '15 Tablets Strip'),
+    _m('med_023', 'Calcium + D3', 'Calcium Carbonate + Cholecalciferol', 'Alkem Laboratories',
+        'Supplements', 5.0, ScheduleType.otc, '15 Tablets Strip'),
+    _m('med_028', 'Shelcal 500', 'Calcium Carbonate + Vitamin D3', 'Torrent Pharmaceuticals',
+        'Supplements', 5.0, ScheduleType.otc, '15 Tablets Strip'),
+
+    // Respiratory — prescription-only combination syrup
+    _m('med_024', 'Ascoril LS Syrup', 'Ambroxol + Levosalbutamol', 'Glenmark Pharmaceuticals',
+        'Respiratory', 12.0, ScheduleType.scheduleH, '100ml Bottle'),
+
+    // Topical — OTC pain-relief gel, 18% GST slab (cosmetic/topical category)
+    _m('med_031', 'Volini Gel', 'Diclofenac Diethylamine', 'Sun Pharma', 'Topical',
+        18.0, ScheduleType.otc, '30g Tube'),
   ];
 
   static Medicine _m(
@@ -69,6 +117,8 @@ class GlobalCatalogueRepository {
     String manufacturer,
     String type,
     double gstRate,
+    ScheduleType scheduleType,
+    String packSizeLabel,
   ) {
     return Medicine(
       id: id,
@@ -77,10 +127,10 @@ class GlobalCatalogueRepository {
       genericName: generic,
       manufacturer: manufacturer,
       type: type,
-      packSizeLabel: '10 Tablets Strip',
-      hsnCode: '3004',
+      packSizeLabel: packSizeLabel,
+      hsnCode: '30049099',
       gstRate: gstRate,
-      scheduleType: ScheduleType.otc,
+      scheduleType: scheduleType,
       minStock: 20,
       shelfLocation: 'A1',
       updatedAt: DateTime.now(),
