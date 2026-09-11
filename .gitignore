@@ -1,0 +1,23 @@
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/pubspec.lock
+*.iml
+.idea/
+.vscode/
+*.g.dart
+*.freezed.dart
+
+# Platform build outputs
+android/
+ios/
+linux/
+macos/
+windows/
+web/
+
+.DS_Store
