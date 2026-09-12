@@ -7,8 +7,10 @@ import 'package:intl/intl.dart';
 
 import 'domain/models/batch.dart';
 import 'domain/models/sale_invoice.dart';
+import 'domain/models/schedule_type.dart';
 import 'domain/services/pdf_invoice_service.dart';
 import 'domain/services/profit_loss_service.dart';
+import 'domain/services/schedule_h1_compliance.dart';
 import 'domain/services/whatsapp_bill_service.dart';
 import 'firebase_options.dart';
 import 'state/bill_history_provider.dart';
@@ -430,6 +432,23 @@ class _BillingCounterViewState extends ConsumerState<BillingCounterView> {
       );
       return;
     }
+
+    // Rule 9: Schedule H1 sales are hard-blocked, not a dismissible
+    // warning — capture patient + prescriber identity before the sale
+    // can proceed, or abort entirely if the pharmacist cancels.
+    final catalogue = ref.read(globalCatalogueRepositoryProvider);
+    final scheduleTypes = cart.map((item) {
+      final matches = catalogue.searchCatalogue('').where((m) => m.id == item.medicineId);
+      return matches.isEmpty ? ScheduleType.unknown : matches.first.scheduleType;
+    });
+
+    PrescriberDetails? prescriberDetails;
+    if (ScheduleH1Compliance.requiresPrescriberCapture(scheduleTypes)) {
+      if (!mounted) return;
+      prescriberDetails = await _capturePrescriberDetails();
+      if (prescriberDetails == null) return; // pharmacist cancelled — sale not completed
+    }
+
     for (final item in cart) {
       inventory.dispense(item.medicineId, item.quantity);
     }
@@ -461,6 +480,10 @@ class _BillingCounterViewState extends ConsumerState<BillingCounterView> {
             gstRate: item.gstRate,
           ),
       ],
+      patientName: prescriberDetails?.patientName,
+      patientPhone: prescriberDetails?.patientPhone,
+      doctorName: prescriberDetails?.doctorName,
+      doctorRegistrationNumber: prescriberDetails?.doctorRegistrationNumber,
     );
 
     ref.read(billHistoryProvider.notifier).addInvoice(invoice);
@@ -468,6 +491,85 @@ class _BillingCounterViewState extends ConsumerState<BillingCounterView> {
 
     if (!mounted) return;
     await PdfInvoiceService.showPdfPreviewModal(context, invoice);
+  }
+
+  /// Blocks (via a non-dismissible-until-valid form) until complete patient
+  /// + prescriber details are entered, or returns null if cancelled.
+  Future<PrescriberDetails?> _capturePrescriberDetails() {
+    final formKey = GlobalKey<FormState>();
+    final patientNameController = TextEditingController();
+    final patientPhoneController = TextEditingController();
+    final doctorNameController = TextEditingController();
+    final doctorRegController = TextEditingController();
+
+    return showDialog<PrescriberDetails>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Schedule H1 — Patient & Prescriber Details Required'),
+          content: SizedBox(
+            width: 420,
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'This sale contains a Schedule H1 medicine. Indian law requires '
+                    'recording the patient and prescribing doctor before dispensing.',
+                    style: TextStyle(fontSize: 12, color: AppColors.muted),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: patientNameController,
+                    decoration: const InputDecoration(labelText: 'Patient Name'),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: patientPhoneController,
+                    decoration: const InputDecoration(labelText: 'Patient Mobile'),
+                    keyboardType: TextInputType.phone,
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: doctorNameController,
+                    decoration: const InputDecoration(labelText: 'Doctor Name'),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: doctorRegController,
+                    decoration: const InputDecoration(labelText: 'Doctor Registration No.'),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(null),
+              child: const Text('Cancel Sale'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (!formKey.currentState!.validate()) return;
+                Navigator.of(context).pop(PrescriberDetails(
+                  patientName: patientNameController.text.trim(),
+                  patientPhone: patientPhoneController.text.trim(),
+                  doctorName: doctorNameController.text.trim(),
+                  doctorRegistrationNumber: doctorRegController.text.trim(),
+                ));
+              },
+              child: const Text('Confirm & Continue'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override

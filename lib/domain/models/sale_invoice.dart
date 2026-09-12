@@ -65,6 +65,13 @@ class SaleInvoice {
   final bool isCancelled;
   final String? cancellationReason;
 
+  // Rule 9: captured only when the cart contains a Schedule H1 item —
+  // CDSCO requires retaining patient + prescriber identity for 3 years.
+  final String? patientName;
+  final String? patientPhone;
+  final String? doctorName;
+  final String? doctorRegistrationNumber;
+
   const SaleInvoice({
     required this.invoiceNumber,
     required this.storeId,
@@ -77,6 +84,10 @@ class SaleInvoice {
     required this.items,
     this.isCancelled = false,
     this.cancellationReason,
+    this.patientName,
+    this.patientPhone,
+    this.doctorName,
+    this.doctorRegistrationNumber,
   });
 
   Decimal get grandTotalRupees =>
@@ -117,6 +128,10 @@ class SaleInvoice {
       'items': items.map((e) => e.toMap()).toList(),
       'isCancelled': isCancelled,
       'cancellationReason': cancellationReason,
+      'patientName': patientName,
+      'patientPhone': patientPhone,
+      'doctorName': doctorName,
+      'doctorRegistrationNumber': doctorRegistrationNumber,
     };
   }
 
@@ -137,6 +152,10 @@ class SaleInvoice {
           .toList(),
       isCancelled: map['isCancelled'] as bool? ?? false,
       cancellationReason: map['cancellationReason'] as String?,
+      patientName: map['patientName'] as String?,
+      patientPhone: map['patientPhone'] as String?,
+      doctorName: map['doctorName'] as String?,
+      doctorRegistrationNumber: map['doctorRegistrationNumber'] as String?,
     );
   }
 }

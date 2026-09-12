@@ -89,10 +89,16 @@ Firestore-backed repositories already exist in `lib/data/repositories/`
 and are ready to swap in once a project is connected — `medicinesStreamProvider`
 in `lib/state/medicine_providers.dart` is the entry point.
 
+Once connected, `scripts/seed_mp_medicines.dart` (see `scripts/README.md`)
+populates that project with 42 authentic, fast-moving Madhya Pradesh
+pharmacy formulations — real brand names, manufacturers, HSN codes, and
+CDSCO schedule classifications — matching Firestore's `medicines` +
+`medicines/{id}/batches` document shape exactly.
+
 ## Known limitations
 
-- The bundled medicine catalogue is a 62-item in-memory seed; the full
-  253,973-row dataset ships as a read-only SQLite file in production
+- The bundled in-app medicine catalogue is a ~95-item in-memory seed; the
+  full 253,973-row dataset ships as a read-only SQLite file in production
   (`lib/data/services/sqlite_catalogue_service.dart` is wired for it).
 - Inventory stock is tracked locally via `inventoryBatchesProvider`
   (seeded starting quantities, incremented by Purchases, decremented
@@ -105,5 +111,9 @@ in `lib/state/medicine_providers.dart` is the entry point.
   `UserAuthNotifier` for now.
 - Firestore Security Rules enforcing `storeId`-scoped access are not yet
   included in this repo.
-- Schedule H1 sales (Rule 9) are flagged with an "Rx" badge in Inventory
-  but not yet hard-blocked pending patient/prescriber capture at checkout.
+- Schedule H1 sales (Rule 9) are hard-blocked at Billing Counter checkout:
+  completing a sale with any H1 item shows a non-dismissible form
+  requiring patient name/phone and doctor name/registration number before
+  the sale can proceed (`ScheduleH1Compliance` in `lib/domain/services/`,
+  captured on `SaleInvoice`). Inventory also flags every prescription item
+  with an "Rx" badge.
