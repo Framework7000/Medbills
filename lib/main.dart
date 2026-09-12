@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import 'domain/models/batch.dart';
+import 'domain/models/medicine.dart';
 import 'domain/models/sale_invoice.dart';
 import 'domain/models/schedule_type.dart';
 import 'domain/services/pdf_invoice_service.dart';
@@ -17,6 +18,7 @@ import 'state/bill_history_provider.dart';
 import 'state/cart_provider.dart';
 import 'state/database_provider.dart';
 import 'state/inventory_batches_provider.dart';
+import 'state/medicine_providers.dart';
 import 'state/purchase_history_provider.dart';
 import 'state/search_preferences_provider.dart';
 import 'state/user_role_provider.dart';
@@ -43,36 +45,43 @@ bool isDesktopWidth(BuildContext context) => MediaQuery.of(context).size.width >
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // firebase_options.dart ships with placeholder credentials until someone
-  // runs `flutterfire configure` against a real project. Every screen in
-  // this app reads from local, in-memory providers (cart, inventory
-  // batches, bill history) rather than Firestore directly, so running
-  // without Firebase never blocks the UI — it only means the
-  // Firestore-backed repositories in lib/data/ won't have anything to
-  // talk to yet.
+  // lib/firebase_options.dart carries real credentials for the
+  // medbills-176df project — Firestore there is genuinely seeded (see
+  // scripts/seed_mp_medicines.dart). Every screen in this app still reads
+  // from local, in-memory providers (cart, inventory batches, bill
+  // history) rather than Firestore directly, so running without a live
+  // connection never blocks the UI.
   //
   // On web specifically, firebase_core lazily `import()`s the Firebase JS
   // SDK from https://www.gstatic.com the first time initializeApp() is
-  // called. If that host is unreachable (a restrictive network, an
-  // offline demo, a sandboxed preview), the rejection surfaces as an
-  // uncaught top-level JS error that Dart's try/catch here cannot see —
-  // it blanks the entire page instead of just failing to connect. So on
-  // web, only attempt the call once the placeholder project ID has
-  // actually been replaced by `flutterfire configure`; otherwise skip it
-  // entirely rather than risk a page-breaking uncaught rejection.
+  // called. When that host is unreachable — a restrictive network, a
+  // sandboxed preview, or (as verified against this exact deployment) a
+  // CSP that only allow-lists a handful of CDNs for scripts — the
+  // rejection surfaces as an uncaught top-level JS error that Dart's
+  // try/catch here cannot see: it blanks the entire page instead of just
+  // failing to connect. That's a property of the hosting network, not of
+  // whether credentials are configured, so it can't be detected at
+  // runtime before it's too late. Web init is therefore opt-in via
+  // --dart-define=ENABLE_FIREBASE_WEB=true at build time, for deployments
+  // (e.g. Firebase Hosting itself, or an unrestricted server) known to
+  // reach gstatic.com. Desktop/mobile builds don't have this failure mode
+  // and always attempt it.
+  const enableFirebaseWeb = bool.fromEnvironment('ENABLE_FIREBASE_WEB');
   final options = DefaultFirebaseOptions.currentPlatform;
-  final isConfigured = !options.projectId.startsWith('REPLACE_WITH');
 
   var firebaseConnected = false;
-  if (isConfigured || !kIsWeb) {
+  if (!kIsWeb || enableFirebaseWeb) {
     try {
       await Firebase.initializeApp(options: options);
       firebaseConnected = true;
     } catch (error) {
-      debugPrint('Firebase not configured — running on local data only. ($error)');
+      debugPrint('Firebase unreachable — running on local data only. ($error)');
     }
   } else {
-    debugPrint('Firebase not configured (placeholder credentials) — running on local data only.');
+    debugPrint(
+        'Firebase web init skipped by default (gstatic.com may be blocked by this host\'s '
+        'network/CSP). Rebuild with --dart-define=ENABLE_FIREBASE_WEB=true once deployed '
+        'somewhere that can reach it.');
   }
 
   runApp(ProviderScope(
@@ -821,11 +830,44 @@ class InventoryMasterView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Renders from the in-memory seed catalogue so Inventory works without a
-    // live Firestore connection (e.g. in dev/demo builds); production reads
-    // from medicinesStreamProvider once Firestore is seeded. Stock levels
-    // come from the real batch ledger (inventoryBatchesProvider), which the
-    // Purchases screen writes to and Billing Counter checkouts deplete.
+    final dbStatus = ref.watch(databaseStatusProvider);
+
+    // Cloud mode: read the live Firestore-backed medicine + batch streams
+    // (medicinesStreamProvider / firestoreStockForMedicineProvider) once a
+    // real project is connected. Local mode: the in-memory seed catalogue
+    // and inventoryBatchesProvider ledger, which Purchases writes to and
+    // Billing Counter checkouts deplete — so the app works fully offline
+    // even when Firebase isn't reachable (see main()'s ENABLE_FIREBASE_WEB
+    // gate for why that's the default on web).
+    if (dbStatus.isConnected) {
+      final medicinesAsync = ref.watch(medicinesStreamProvider);
+      return Scaffold(
+        appBar: AppBar(title: const Text('Inventory Master (Cloud)')),
+        body: medicinesAsync.when(
+          data: (medicines) {
+            if (medicines.isEmpty) {
+              return const Center(child: Text('No medicines in Firestore yet for this store.'));
+            }
+            return ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: medicines.length,
+              separatorBuilder: (_, _) => const Divider(),
+              itemBuilder: (context, index) {
+                final m = medicines[index];
+                final stockAsync = ref.watch(firestoreStockForMedicineProvider(m.id));
+                return _InventoryTile(
+                  medicine: m,
+                  stock: stockAsync.asData?.value,
+                );
+              },
+            );
+          },
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (err, _) => Center(child: Text('Failed to load from Firestore: $err')),
+        ),
+      );
+    }
+
     final repo = ref.watch(globalCatalogueRepositoryProvider);
     final medicines = repo.searchCatalogue('');
     ref.watch(inventoryBatchesProvider);
@@ -839,45 +881,58 @@ class InventoryMasterView extends ConsumerWidget {
         separatorBuilder: (_, _) => const Divider(),
         itemBuilder: (context, index) {
           final m = medicines[index];
-          final stock = inventory.totalStockFor(m.id);
-          final lowStock = stock <= m.minStock;
-          return ListTile(
-            title: Row(
-              children: [
-                Expanded(child: Text(m.name)),
-                if (m.scheduleType.requiresPrescription)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.shade100,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text('Rx', style: TextStyle(fontSize: 11, color: Colors.deepOrange)),
-                  ),
-              ],
-            ),
-            subtitle: Text('${m.manufacturer} · ${m.type} · HSN ${m.hsnCode}'),
-            trailing: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('GST ${m.gstRate.toStringAsFixed(0)}%',
-                    style: const TextStyle(fontSize: 12, color: AppColors.muted)),
-                Text(
-                  '$stock in stock',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: stock == 0
-                        ? Colors.red
-                        : lowStock
-                            ? Colors.orange.shade800
-                            : Colors.black87,
-                  ),
-                ),
-              ],
-            ),
-          );
+          return _InventoryTile(medicine: m, stock: inventory.totalStockFor(m.id));
         },
+      ),
+    );
+  }
+}
+
+class _InventoryTile extends StatelessWidget {
+  const _InventoryTile({required this.medicine, required this.stock});
+
+  final Medicine medicine;
+  final int? stock;
+
+  @override
+  Widget build(BuildContext context) {
+    final lowStock = stock != null && stock! <= medicine.minStock;
+    return ListTile(
+      title: Row(
+        children: [
+          Expanded(child: Text(medicine.name)),
+          if (medicine.scheduleType.requiresPrescription)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade100,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Text('Rx', style: TextStyle(fontSize: 11, color: Colors.deepOrange)),
+            ),
+        ],
+      ),
+      subtitle: Text('${medicine.manufacturer} · ${medicine.type} · HSN ${medicine.hsnCode}'),
+      trailing: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('GST ${medicine.gstRate.toStringAsFixed(0)}%',
+              style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+          Text(
+            stock == null ? '…' : '$stock in stock',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: stock == null
+                  ? AppColors.muted
+                  : stock == 0
+                      ? Colors.red
+                      : lowStock
+                          ? Colors.orange.shade800
+                          : Colors.black87,
+            ),
+          ),
+        ],
       ),
     );
   }
