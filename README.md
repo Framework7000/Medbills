@@ -5,22 +5,44 @@ Riverpod, and Firebase. See the full architecture, rules, and defect history
 this codebase was rebuilt from in the project blueprint shared with this
 repository's maintainers.
 
-## Getting started
+## Resuming this project on your own machine
 
-This repo ships the Dart/Flutter source (`lib/`, `test/`) and `pubspec.yaml`.
-Platform runner folders (`android/`, `ios/`, `windows/`, `macos/`, `web/`) are
-generated locally, not committed, so first-time setup is:
+Everything built in the Claude session so far — the app, the tests, the
+Firebase connection, the seeded Firestore data — is captured in this git
+repo on the `claude/medbills-repo-t8ueeh` branch. Nothing was left only in
+the cloud session; picking it up locally is just: clone, generate the
+gitignored platform folders, fetch dependencies.
 
 ```bash
-flutter create --platforms=windows,web,android,macos .
-flutter pub get
+git clone https://github.com/Framework7000/Medbills.git
+cd Medbills
+git checkout claude/medbills-repo-t8ueeh
+./setup.sh
 ```
+
+`setup.sh` runs `flutter create --platforms=...` (regenerates the
+`android/`/`ios/`/`windows/`/`macos/`/`web/` runner folders — these were
+never committed, they're build scaffolding, not source), `flutter pub
+get`, and `dart pub get` inside `scripts/`, then prints what to do next.
+Requires the Flutter SDK already installed
+(https://docs.flutter.dev/get-started/install).
+
+You'll land in exactly the state this session left off in:
+- `lib/firebase_options.dart` already points at the real, seeded Firebase
+  project (`medbills-176df`) — desktop/mobile builds connect to it
+  automatically, no extra setup.
+- Firestore already has the 42-medicine Madhya Pradesh catalogue in it
+  (written by `scripts/seed_mp_medicines.dart` from this session).
+- All 46 tests and `flutter analyze` pass as of the last commit.
 
 ### Run
 
 ```bash
-flutter run -d windows   # or -d chrome, -d macos, etc.
+flutter run -d chrome     # or -d windows / -d macos / an Android device
 ```
+
+Web builds don't auto-connect to Firebase by default — see "Firebase
+project" below for why, and how to opt in.
 
 ### Test
 
