@@ -1,15 +1,21 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import 'domain/models/batch.dart';
 import 'domain/models/sale_invoice.dart';
 import 'domain/services/pdf_invoice_service.dart';
 import 'domain/services/profit_loss_service.dart';
 import 'domain/services/whatsapp_bill_service.dart';
+import 'firebase_options.dart';
 import 'state/bill_history_provider.dart';
 import 'state/cart_provider.dart';
 import 'state/database_provider.dart';
+import 'state/inventory_batches_provider.dart';
+import 'state/purchase_history_provider.dart';
 import 'state/search_preferences_provider.dart';
 import 'state/user_role_provider.dart';
 
@@ -32,8 +38,49 @@ bool isDesktopWidth(BuildContext context) => MediaQuery.of(context).size.width >
 // Entry point
 // ---------------------------------------------------------------------------
 
-void main() {
-  runApp(const ProviderScope(child: MedBillsApp()));
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // firebase_options.dart ships with placeholder credentials until someone
+  // runs `flutterfire configure` against a real project. Every screen in
+  // this app reads from local, in-memory providers (cart, inventory
+  // batches, bill history) rather than Firestore directly, so running
+  // without Firebase never blocks the UI — it only means the
+  // Firestore-backed repositories in lib/data/ won't have anything to
+  // talk to yet.
+  //
+  // On web specifically, firebase_core lazily `import()`s the Firebase JS
+  // SDK from https://www.gstatic.com the first time initializeApp() is
+  // called. If that host is unreachable (a restrictive network, an
+  // offline demo, a sandboxed preview), the rejection surfaces as an
+  // uncaught top-level JS error that Dart's try/catch here cannot see —
+  // it blanks the entire page instead of just failing to connect. So on
+  // web, only attempt the call once the placeholder project ID has
+  // actually been replaced by `flutterfire configure`; otherwise skip it
+  // entirely rather than risk a page-breaking uncaught rejection.
+  final options = DefaultFirebaseOptions.currentPlatform;
+  final isConfigured = !options.projectId.startsWith('REPLACE_WITH');
+
+  var firebaseConnected = false;
+  if (isConfigured || !kIsWeb) {
+    try {
+      await Firebase.initializeApp(options: options);
+      firebaseConnected = true;
+    } catch (error) {
+      debugPrint('Firebase not configured — running on local data only. ($error)');
+    }
+  } else {
+    debugPrint('Firebase not configured (placeholder credentials) — running on local data only.');
+  }
+
+  runApp(ProviderScope(
+    overrides: [
+      databaseStatusProvider.overrideWith(
+        (ref) => DatabaseStatusNotifier(initiallyConnected: firebaseConnected),
+      ),
+    ],
+    child: const MedBillsApp(),
+  ));
 }
 
 class MedBillsApp extends ConsumerWidget {
@@ -128,6 +175,7 @@ class _MainShellViewState extends ConsumerState<MainShellView> {
   Widget build(BuildContext context) {
     final desktop = isDesktopWidth(context);
     final user = ref.watch(userAuthProvider);
+    final dbStatus = ref.watch(databaseStatusProvider);
 
     final body = _buildPage(_current);
 
@@ -146,6 +194,39 @@ class _MainShellViewState extends ConsumerState<MainShellView> {
                     const Icon(Icons.local_pharmacy, color: AppColors.primary, size: 32),
                     const SizedBox(height: 4),
                     Text(user.name, style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+                    const SizedBox(height: 8),
+                    Tooltip(
+                      message: dbStatus.isConnected
+                          ? 'Connected to Firebase'
+                          : 'Running on local data only — Firebase not configured',
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: dbStatus.isConnected
+                              ? Colors.green.shade50
+                              : Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              dbStatus.isConnected ? Icons.cloud_done : Icons.cloud_off,
+                              size: 12,
+                              color: dbStatus.isConnected ? Colors.green.shade800 : AppColors.muted,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              dbStatus.isConnected ? 'Cloud' : 'Local',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: dbStatus.isConnected ? Colors.green.shade800 : AppColors.muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -333,6 +414,25 @@ class _BillingCounterViewState extends ConsumerState<BillingCounterView> {
   Future<void> _completeAndPrint() async {
     final cart = ref.read(cartProvider);
     if (cart.isEmpty) return;
+
+    final inventory = ref.read(inventoryBatchesProvider.notifier);
+    final shortfalls = <String>[];
+    for (final item in cart) {
+      if (!inventory.hasStock(item.medicineId, item.quantity)) {
+        final available = inventory.totalStockFor(item.medicineId);
+        shortfalls.add('${item.name}: need ${item.quantity}, only $available in stock');
+      }
+    }
+    if (shortfalls.isNotEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Insufficient stock — ${shortfalls.join('; ')}')),
+      );
+      return;
+    }
+    for (final item in cart) {
+      inventory.dispense(item.medicineId, item.quantity);
+    }
 
     final grand = ref.read(cartGrandTotalProvider);
     final gst = ref.read(cartGstTotalProvider);
@@ -621,9 +721,13 @@ class InventoryMasterView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // Renders from the in-memory seed catalogue so Inventory works without a
     // live Firestore connection (e.g. in dev/demo builds); production reads
-    // from medicinesStreamProvider once Firestore is seeded.
+    // from medicinesStreamProvider once Firestore is seeded. Stock levels
+    // come from the real batch ledger (inventoryBatchesProvider), which the
+    // Purchases screen writes to and Billing Counter checkouts deplete.
     final repo = ref.watch(globalCatalogueRepositoryProvider);
     final medicines = repo.searchCatalogue('');
+    ref.watch(inventoryBatchesProvider);
+    final inventory = ref.read(inventoryBatchesProvider.notifier);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Inventory Master')),
@@ -633,10 +737,43 @@ class InventoryMasterView extends ConsumerWidget {
         separatorBuilder: (_, _) => const Divider(),
         itemBuilder: (context, index) {
           final m = medicines[index];
+          final stock = inventory.totalStockFor(m.id);
+          final lowStock = stock <= m.minStock;
           return ListTile(
-            title: Text(m.name),
+            title: Row(
+              children: [
+                Expanded(child: Text(m.name)),
+                if (m.scheduleType.requiresPrescription)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade100,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text('Rx', style: TextStyle(fontSize: 11, color: Colors.deepOrange)),
+                  ),
+              ],
+            ),
             subtitle: Text('${m.manufacturer} · ${m.type} · HSN ${m.hsnCode}'),
-            trailing: Text('GST ${m.gstRate.toStringAsFixed(0)}%'),
+            trailing: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('GST ${m.gstRate.toStringAsFixed(0)}%',
+                    style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                Text(
+                  '$stock in stock',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: stock == 0
+                        ? Colors.red
+                        : lowStock
+                            ? Colors.orange.shade800
+                            : Colors.black87,
+                  ),
+                ),
+              ],
+            ),
           );
         },
       ),
@@ -648,16 +785,207 @@ class InventoryMasterView extends ConsumerWidget {
 // Purchases
 // ---------------------------------------------------------------------------
 
-class PurchasesView extends StatelessWidget {
+class PurchasesView extends ConsumerStatefulWidget {
   const PurchasesView({super.key});
 
   @override
+  ConsumerState<PurchasesView> createState() => _PurchasesViewState();
+}
+
+class _PurchasesViewState extends ConsumerState<PurchasesView> {
+  final _formKey = GlobalKey<FormState>();
+  String? _selectedMedicineId;
+  final _batchNumberController = TextEditingController();
+  final _purchasePriceController = TextEditingController();
+  final _mrpController = TextEditingController();
+  final _quantityController = TextEditingController();
+  DateTime? _expiryDate;
+
+  @override
+  void dispose() {
+    _batchNumberController.dispose();
+    _purchasePriceController.dispose();
+    _mrpController.dispose();
+    _quantityController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickExpiryDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime(now.year + 1, now.month),
+      firstDate: now,
+      lastDate: DateTime(now.year + 10),
+    );
+    if (picked != null) setState(() => _expiryDate = picked);
+  }
+
+  void _submit() {
+    if (!_formKey.currentState!.validate()) return;
+    if (_selectedMedicineId == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Select a medicine')));
+      return;
+    }
+    if (_expiryDate == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Pick an expiry date')));
+      return;
+    }
+
+    final repo = ref.read(globalCatalogueRepositoryProvider);
+    final medicine = repo.searchCatalogue('').firstWhere((m) => m.id == _selectedMedicineId);
+    final purchasePricePaise = (double.parse(_purchasePriceController.text) * 100).round();
+    final mrpPaise = (double.parse(_mrpController.text) * 100).round();
+    final quantity = int.parse(_quantityController.text);
+
+    final batch = Batch(
+      id: '${medicine.id}_${_batchNumberController.text}',
+      medicineId: medicine.id,
+      batchNumber: _batchNumberController.text,
+      expiryDate: _expiryDate!,
+      purchasePricePaise: purchasePricePaise,
+      mrpPaise: mrpPaise,
+      quantity: quantity,
+      createdAt: DateTime.now(),
+    );
+
+    ref.read(inventoryBatchesProvider.notifier).receiveBatch(batch);
+    ref.read(purchaseHistoryProvider.notifier).addPurchase(PurchaseRecord(
+          medicineId: medicine.id,
+          medicineName: medicine.name,
+          batchNumber: batch.batchNumber,
+          expiryDate: batch.expiryDate,
+          purchasePricePaise: purchasePricePaise,
+          mrpPaise: mrpPaise,
+          quantity: quantity,
+          receivedAt: DateTime.now(),
+        ));
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Received $quantity units of ${medicine.name} (Batch ${batch.batchNumber})')),
+    );
+
+    _formKey.currentState!.reset();
+    _batchNumberController.clear();
+    _purchasePriceController.clear();
+    _mrpController.clear();
+    _quantityController.clear();
+    setState(() {
+      _selectedMedicineId = null;
+      _expiryDate = null;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final repo = ref.watch(globalCatalogueRepositoryProvider);
+    final medicines = repo.searchCatalogue('');
+    final purchases = ref.watch(purchaseHistoryProvider);
+    final desktop = isDesktopWidth(context);
+    final dateFmt = DateFormat('MMM yyyy');
+
+    final form = Form(
+      key: _formKey,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Receive Stock', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _selectedMedicineId,
+              decoration: const InputDecoration(labelText: 'Medicine'),
+              isExpanded: true,
+              items: [
+                for (final m in medicines)
+                  DropdownMenuItem(value: m.id, child: Text(m.name, overflow: TextOverflow.ellipsis)),
+              ],
+              onChanged: (value) => setState(() => _selectedMedicineId = value),
+              validator: (value) => value == null ? 'Required' : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _batchNumberController,
+              decoration: const InputDecoration(labelText: 'Batch Number'),
+              validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+            ),
+            const SizedBox(height: 12),
+            InkWell(
+              onTap: _pickExpiryDate,
+              child: InputDecorator(
+                decoration: const InputDecoration(labelText: 'Expiry Date'),
+                child: Text(_expiryDate == null ? 'Select date' : dateFmt.format(_expiryDate!)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _purchasePriceController,
+              decoration: const InputDecoration(labelText: 'Purchase Price (₹ per unit)'),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              validator: (v) => double.tryParse(v ?? '') == null ? 'Enter a valid amount' : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _mrpController,
+              decoration: const InputDecoration(labelText: 'MRP (₹ per unit, GST-inclusive)'),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              validator: (v) => double.tryParse(v ?? '') == null ? 'Enter a valid amount' : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _quantityController,
+              decoration: const InputDecoration(labelText: 'Quantity (base units)'),
+              keyboardType: TextInputType.number,
+              validator: (v) => int.tryParse(v ?? '') == null ? 'Enter a valid quantity' : null,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.add_box_outlined),
+              label: const Text('Receive Stock'),
+              onPressed: _submit,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final history = ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: purchases.length + 1,
+      separatorBuilder: (_, _) => const Divider(),
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return const Text('Purchase History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16));
+        }
+        final p = purchases[index - 1];
+        return ListTile(
+          title: Text('${p.medicineName} · Batch ${p.batchNumber}'),
+          subtitle: Text('Qty ${p.quantity} · Exp ${dateFmt.format(p.expiryDate)}'),
+          trailing: Text('Rs. ${(p.totalCostPaise / 100).toStringAsFixed(2)}'),
+        );
+      },
+    );
+
     return Scaffold(
       appBar: AppBar(title: const Text('Purchases')),
-      body: const Center(
-        child: Text('Purchase order intake — coming soon'),
-      ),
+      body: desktop
+          ? Row(
+              children: [
+                Expanded(child: SingleChildScrollView(child: form)),
+                const VerticalDivider(width: 1, color: AppColors.border),
+                Expanded(child: history),
+              ],
+            )
+          : ListView(
+              children: [
+                form,
+                const Divider(),
+                SizedBox(height: 400, child: history),
+              ],
+            ),
     );
   }
 }

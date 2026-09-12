@@ -21,8 +21,8 @@ class DatabaseStatus {
 }
 
 class DatabaseStatusNotifier extends StateNotifier<DatabaseStatus> {
-  DatabaseStatusNotifier()
-      : super(DatabaseStatus(isConnected: true, lastRefreshed: DateTime.now()));
+  DatabaseStatusNotifier({bool initiallyConnected = true})
+      : super(DatabaseStatus(isConnected: initiallyConnected, lastRefreshed: DateTime.now()));
 
   void refresh() {
     state = state.copyWith(lastRefreshed: DateTime.now());
