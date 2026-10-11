@@ -1,17 +1,25 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../domain/models/batch.dart';
 import '../../domain/models/customer_credit.dart';
 import '../../domain/models/sale_invoice.dart';
+import '../../domain/models/scan_link.dart';
 import '../../domain/services/billing_calculator.dart';
 import '../../domain/services/gs1_parser.dart';
 import '../../domain/services/pack_units.dart';
 import '../../domain/services/schedule_h1_compliance.dart';
 import '../../domain/services/stock_summary.dart';
+import '../../platform/device_features.dart';
 import '../../state/providers.dart';
 import '../customers/customer_dialogs.dart';
+import '../purchases/medicine_picker.dart';
+import '../scan/barcode_scanner_screen.dart';
+import '../scan/scan_flows.dart';
 import '../sales/invoice_view.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -30,11 +38,255 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
   final _searchFocus = FocusNode();
   bool _checkingOut = false;
 
+  // Phone → this counter link.
+  ScanStation? _station;
+  StreamSubscription<List<ScanEvent>>? _scanSub;
+  Timer? _heartbeat;
+  final _handledScans = <String>{};
+  ScanStation? _sendTo; // on a phone: the counter scans go to (null = this phone)
+
   @override
   void dispose() {
     _search.dispose();
     _searchFocus.dispose();
+    _stopStation(notify: false);
     super.dispose();
+  }
+
+  // ------------------------------------------------------------- scanning
+
+  /// Adds one pack of a scanned medicine — the scanned batch when it is on
+  /// the shelf, otherwise nearest expiry first.
+  ScanFeedback _addScanned(StockSummary stock, {String? batchNumber}) {
+    final m = stock.medicine;
+    if (!m.scheduleType.isSellable) {
+      return ScanFeedback('${m.name} is unclassified — set its schedule in Stock first.', ok: false);
+    }
+    final now = DateTime.now();
+    final cart = ref.read(cartProvider);
+    final batches = batchesFor(stock, batchNumber);
+    final free = batches
+        .where((b) => b.isSellableAt(now))
+        .fold<int>(0, (sum, b) => sum + b.quantity - (cart.unitsByBatch[b.id] ?? 0));
+    if (free <= 0) {
+      return ScanFeedback(
+          stock.isOutOfStock ? '${m.name} is out of stock.' : 'All ${m.name} in stock is already on this bill.',
+          ok: false);
+    }
+    final units = free < m.unitsPerPack ? free : m.unitsPerPack;
+    try {
+      ref.read(cartProvider.notifier).addMedicine(m, batches, units, now: now);
+    } catch (e) {
+      return ScanFeedback(friendlyError(e), ok: false);
+    }
+    final wanted = batchNumber == null || batchNumber.isEmpty ? null : Batch.normaliseBatchNumber(batchNumber);
+    final usedWanted = wanted != null && batches.length == 1 && batches.first.batchNumber == wanted;
+    return ScanFeedback('Added ${PackUnits.describe(units, m.unitsPerPack)} · ${m.name}'
+        '${wanted != null && !usedWanted ? ' (batch $wanted not in stock — billed nearest expiry)' : ''}');
+  }
+
+  Future<ScanFeedback> _handleCode(String raw) async {
+    final index = ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
+    final hit = resolveBarcode(raw, index);
+    if (hit.expiry != null && hit.expiry!.isBefore(DateTime.now())) {
+      return ScanFeedback('This pack is EXPIRED (${DateFormat('MM/yy').format(hit.expiry!)}). Do not sell it.', ok: false);
+    }
+    final stock = hit.stock;
+    if (stock == null) {
+      final manager = ref.read(currentUserProvider)?.role.canManageStock ?? false;
+      return ScanFeedback(
+        'Barcode $raw isn\'t linked to a medicine yet.',
+        ok: false,
+        actionLabel: manager ? 'Link' : null,
+        onAction: manager ? () => _linkBarcode(raw) : null,
+      );
+    }
+    final target = _sendTo;
+    if (target != null) {
+      final repo = ref.read(repositoryProvider)!;
+      await repo.sendScan(ScanEvent(
+        id: repo.newId(),
+        storeId: repo.storeId,
+        stationId: target.id,
+        rawBarcode: raw,
+        medicineId: stock.medicine.id,
+        batchNumber: hit.batchNumber,
+        deviceLabel: DeviceFeatures.label,
+        createdBy: repo.actor.uid,
+        createdByName: repo.actor.name,
+        scannedAt: DateTime.now(),
+      ));
+      return ScanFeedback('Sent ${stock.medicine.name} to ${target.name}');
+    }
+    return _addScanned(stock, batchNumber: hit.batchNumber);
+  }
+
+  /// Saves an unknown barcode on the medicine it belongs to, so the next
+  /// scan of that pack — on any device — finds it.
+  Future<void> _linkBarcode(String raw) async {
+    final picked = await pickMedicine(context);
+    if (picked == null || !mounted) return;
+    try {
+      await ref.read(repositoryProvider)!.saveMedicine(picked.medicine.copyWith(barcode: raw));
+      if (mounted) showMessage(context, 'Barcode linked to ${picked.medicine.name}. Scan it again to add it.');
+    } catch (e) {
+      if (mounted) showMessage(context, friendlyError(e), error: true);
+    }
+  }
+
+  Future<void> _openScanner() => openContinuousScanner(
+        context,
+        title: 'Scan medicines',
+        onScan: _handleCode,
+        header: Consumer(builder: (context, ref, _) {
+          final now = DateTime.now();
+          final stations = (ref.watch(stationsProvider).valueOrNull ?? const <ScanStation>[])
+              .where((s) => s.isAvailableAt(now))
+              .toList();
+          if (stations.isEmpty) return const SizedBox.shrink();
+          return StatefulBuilder(
+            builder: (context, setLocal) => DropdownButtonFormField<String>(
+              initialValue: stations.any((s) => s.id == _sendTo?.id) ? _sendTo!.id : '',
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Add scanned items to'),
+              items: [
+                const DropdownMenuItem(value: '', child: Text('The bill on this phone')),
+                for (final s in stations) DropdownMenuItem(value: s.id, child: Text('${s.name} (counter)')),
+              ],
+              onChanged: (id) => setLocal(() => _sendTo = stations.where((s) => s.id == id).firstOrNull),
+            ),
+          );
+        }),
+      );
+
+  Future<void> _readPack() async {
+    final index = ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
+    final scan = await scanPackPhoto(context, medicines: index.values.map((s) => s.medicine).toList());
+    if (scan == null || !mounted) return;
+    final info = scan.info;
+    if (info.hasExpiry && Batch.endOfMonth(info.expiryYear!, info.expiryMonth!).isBefore(DateTime.now())) {
+      showMessage(context, 'That pack is expired — not added.', error: true);
+      return;
+    }
+    final stock = index[scan.medicine.id];
+    if (stock == null) return;
+    final feedback = _addScanned(stock, batchNumber: info.batchNumber);
+    if (info.mrpPaise != null && feedback.ok) {
+      final billed = batchesFor(stock, info.batchNumber).firstOrNull;
+      if (billed != null && billed.mrpPaise != info.mrpPaise) {
+        showMessage(context,
+            '${feedback.message}. Note: pack MRP ${formatRupees(info.mrpPaise!)} differs from stock record ${formatRupees(billed.mrpPaise)}.',
+            error: true);
+        return;
+      }
+    }
+    showMessage(context, feedback.message, error: !feedback.ok);
+  }
+
+  // ------------------------------------------------- this device as a counter
+
+  Future<void> _toggleStation() async {
+    if (_station != null) {
+      _stopStation();
+      return;
+    }
+    final repo = ref.read(repositoryProvider)!;
+    final name = await _askCounterName();
+    if (name == null || !mounted) return;
+    final station = ScanStation(
+      id: repo.newId(),
+      storeId: repo.storeId,
+      name: name,
+      active: true,
+      uid: repo.actor.uid,
+      updatedAt: DateTime.now(),
+    );
+    try {
+      await repo.saveStation(station);
+    } catch (e) {
+      if (mounted) showMessage(context, friendlyError(e), error: true);
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _station = station);
+    _scanSub = repo.watchScansFor(station.id).listen(_onRemoteScans);
+    // Keep the counter listed on phones while it stays open.
+    _heartbeat = Timer.periodic(const Duration(hours: 1), (_) {
+      final s = _station;
+      if (s != null) {
+        unawaited(repo.saveStation(ScanStation(
+            id: s.id, storeId: s.storeId, name: s.name, active: true, uid: s.uid, updatedAt: DateTime.now())));
+      }
+    });
+    showMessage(context, 'Phones can now send scans to "$name". On the phone: Billing → scan → choose $name.');
+  }
+
+  void _stopStation({bool notify = true}) {
+    final station = _station;
+    unawaited(_scanSub?.cancel());
+    _heartbeat?.cancel();
+    _scanSub = null;
+    _heartbeat = null;
+    if (station == null) return;
+    _station = null;
+    final repo = ref.read(repositoryProvider);
+    if (repo != null) {
+      unawaited(repo
+          .saveStation(ScanStation(
+              id: station.id,
+              storeId: station.storeId,
+              name: station.name,
+              active: false,
+              uid: station.uid,
+              updatedAt: DateTime.now()))
+          .catchError((_) {}));
+    }
+    if (notify && mounted) setState(() {});
+  }
+
+  Future<String?> _askCounterName() {
+    final controller = TextEditingController(text: '${DeviceFeatures.label} counter');
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Receive scans from phones'),
+        content: DialogBody(
+          child: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Counter name', helperText: 'Shown on the phone, e.g. "Counter 1"'),
+            onSubmitted: (v) => Navigator.pop(context, v.trim().isEmpty ? null : v.trim()),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim().isEmpty ? null : controller.text.trim()),
+            child: const Text('Start'),
+          ),
+        ],
+      ),
+    ).whenComplete(controller.dispose);
+  }
+
+  void _onRemoteScans(List<ScanEvent> events) {
+    if (!mounted) return;
+    final now = DateTime.now();
+    final pending = events
+        .where((e) => !e.done && !_handledScans.contains(e.id) && now.difference(e.scannedAt).inMinutes.abs() < 10)
+        .toList()
+      ..sort((a, b) => a.scannedAt.compareTo(b.scannedAt));
+    final repo = ref.read(repositoryProvider);
+    for (final e in pending) {
+      _handledScans.add(e.id);
+      final index = ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
+      final stock = (e.medicineId == null ? null : index[e.medicineId]) ?? resolveBarcode(e.rawBarcode, index).stock;
+      final feedback = stock == null
+          ? ScanFeedback('Unknown barcode ${e.rawBarcode}', ok: false)
+          : _addScanned(stock, batchNumber: e.batchNumber);
+      if (repo != null) unawaited(repo.markScanDone(e.id).catchError((_) {}));
+      showMessage(context, '${e.createdByName} (${e.deviceLabel}): ${feedback.message}', error: !feedback.ok);
+    }
   }
 
   String get _query => _search.text.trim();
@@ -61,19 +313,21 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
 
   /// Enter in the search box: a scanned barcode (EAN or GS1 DataMatrix) adds
   /// its medicine directly; otherwise the top match is picked.
-  void _onSearchSubmitted(Map<String, StockSummary> index) {
+  Future<void> _onSearchSubmitted(Map<String, StockSummary> index) async {
     if (_query.isEmpty) return;
-    final parsed = Gs1Parser.parse(_query);
-    final gtin = parsed.gtin;
-    if (gtin != null) {
-      final match = index.values.where((s) {
-        final code = s.medicine.barcode;
-        return code != null && (code == gtin || code.endsWith(gtin) || gtin.endsWith(code));
-      }).firstOrNull;
-      if (match != null) {
-        _pick(match);
-        return;
-      }
+    // USB/Bluetooth scanners type the code and press Enter: add one pack.
+    if (Gs1Parser.parse(_query).gtin != null) {
+      final sendTo = _sendTo;
+      _sendTo = null; // a counter's own scanner always bills here
+      final feedback = await _handleCode(_query);
+      _sendTo = sendTo;
+      if (!mounted) return;
+      _search.clear();
+      setState(() {});
+      showMessage(context, feedback.message, error: !feedback.ok);
+      if (feedback.onAction != null && !feedback.ok) feedback.onAction!();
+      _searchFocus.requestFocus();
+      return;
     }
     final results = _results(index);
     if (results.isNotEmpty) {
@@ -202,7 +456,30 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
         child: Scaffold(
           appBar: AppBar(
             title: const Text('Billing'),
+            bottom: _station == null
+                ? null
+                : PreferredSize(
+                    preferredSize: const Size.fromHeight(32),
+                    child: Container(
+                      height: 32,
+                      color: AppColors.primaryContainer,
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: Space.l),
+                      child: Text('Receiving phone scans as "${_station!.name}"',
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+                  ),
             actions: [
+              if (DeviceFeatures.cameraScanning) ...[
+                IconButton(tooltip: 'Scan barcodes', icon: const Icon(Icons.qr_code_scanner), onPressed: _openScanner),
+                IconButton(tooltip: 'Read a pack (photo)', icon: const Icon(Icons.document_scanner_outlined), onPressed: _readPack),
+              ],
+              if (!DeviceFeatures.cameraScanning || wide)
+                IconButton(
+                  tooltip: _station == null ? 'Receive scans from a phone' : 'Stop receiving phone scans',
+                  icon: Icon(_station == null ? Icons.phonelink_outlined : Icons.phonelink_off_outlined),
+                  onPressed: _toggleStation,
+                ),
               if (!ref.watch(cartProvider.select((c) => c.isEmpty)))
                 TextButton.icon(
                   onPressed: () async {

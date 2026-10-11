@@ -143,6 +143,51 @@ service cloud.firestore {
         }
       }
 
+      // Photographed supplier bills. Anyone on staff may capture one; the
+      // picture is write-once; only managers can mark a bill received
+      // (its lines become stock through the purchase/batch rules above).
+      match /billScans/{scanId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && storeIdMatches(storeId)
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.status == 'draft';
+        allow update: if isMember(storeId)
+            && unchanged(['storeId', 'id', 'createdBy', 'createdAt', 'ocrText', 'hasImage'])
+            && resource.data.status == 'draft'
+            && (isManager()
+                || (resource.data.createdBy == request.auth.uid
+                    && request.resource.data.status in ['draft', 'discarded']));
+        allow delete: if false;
+      }
+
+      match /billScanImages/{scanId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && storeIdMatches(storeId)
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.jpeg is bytes
+            && request.resource.data.jpeg.size() <= 921600;
+        allow update, delete: if false;
+      }
+
+      // Billing counters that accept scans sent from a phone.
+      match /stations/{stationId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && storeIdMatches(storeId)
+            && request.resource.data.uid == request.auth.uid;
+        allow update: if isMember(storeId) && unchanged(['storeId', 'id']);
+        allow delete: if false;
+      }
+
+      match /scanEvents/{eventId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && storeIdMatches(storeId)
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.status == 'pending';
+        allow update: if isMember(storeId) && onlyChanged(['status'])
+            && request.resource.data.status == 'done';
+        allow delete: if false;
+      }
+
       match /auditLog/{entryId} {
         allow read: if isMember(storeId) && hasRole(['owner']);
         allow create: if isMember(storeId) && storeIdMatches(storeId)

@@ -28,6 +28,8 @@ import 'package:args/args.dart';
 import 'package:googleapis/firestore/v1.dart' as fs;
 import 'package:googleapis_auth/auth_io.dart' as auth;
 
+// The app's own catalogue is the single source of medicine data.
+// ignore: avoid_relative_lib_imports
 import '../lib/data/repositories/global_catalogue_repository.dart';
 
 fs.Value _value(Object? v) {

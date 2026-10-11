@@ -9,10 +9,12 @@ import '../data/pharmacy_repository.dart';
 import '../data/repositories/global_catalogue_repository.dart';
 import '../domain/models/app_user.dart';
 import '../domain/models/batch.dart';
+import '../domain/models/bill_scan.dart';
 import '../domain/models/customer_credit.dart';
 import '../domain/models/medicine.dart';
 import '../domain/models/purchase_record.dart';
 import '../domain/models/sale_invoice.dart';
+import '../domain/models/scan_link.dart';
 import '../domain/models/store_profile.dart';
 import '../domain/services/stock_summary.dart';
 import 'cart.dart';
@@ -85,6 +87,11 @@ final customersProvider = StreamProvider<List<CustomerCredit>>((ref) => _repo(re
 final ledgerProvider = StreamProvider.family<List<CreditLedgerEntry>, String>(
   (ref, customerId) => _repo(ref).watchLedger(customerId),
 );
+
+final billScansProvider = StreamProvider<List<BillScan>>((ref) => _repo(ref).watchBillScans());
+
+/// Billing counters currently accepting scans from phones.
+final stationsProvider = StreamProvider<List<ScanStation>>((ref) => _repo(ref).watchStations());
 
 /// Ticks once a minute so expiry status stays current on a counter that
 /// is left open all day.

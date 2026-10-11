@@ -1,15 +1,20 @@
+import 'dart:typed_data';
+
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nuskha_pms/data/firestore_pharmacy_repository.dart';
 import 'package:nuskha_pms/data/local_pharmacy_repository.dart';
 import 'package:nuskha_pms/data/pharmacy_repository.dart';
 import 'package:nuskha_pms/domain/models/app_user.dart';
+import 'package:nuskha_pms/domain/models/bill_scan.dart';
 import 'package:nuskha_pms/domain/models/customer_credit.dart';
 import 'package:nuskha_pms/domain/models/sale_invoice.dart';
+import 'package:nuskha_pms/domain/models/scan_link.dart';
 import 'package:nuskha_pms/domain/models/schedule_type.dart';
 import 'package:nuskha_pms/domain/models/store_profile.dart';
 import 'package:nuskha_pms/domain/services/checkout_engine.dart';
 import 'package:nuskha_pms/domain/services/invoice_number.dart';
+import 'package:nuskha_pms/domain/services/stock_receipt.dart';
 
 import '../support/fixtures.dart';
 
@@ -204,5 +209,81 @@ void contract(RepoFactory create, {required RepoFactory as}) {
     final today = DateTime(now.year, now.month, now.day);
     expect(await repo.salesBetween(today, today.add(const Duration(days: 1))), hasLength(1));
     expect(await repo.salesBetween(today.subtract(const Duration(days: 1)), today), isEmpty);
+  });
+
+  test('a photographed bill keeps its picture, is corrected, received once and never deleted', () async {
+    final jpeg = Uint8List.fromList(List<int>.generate(2048, (i) => i % 251));
+    final asCounter = as(counter);
+    final scan = await asCounter.createBillScan(
+      draft: const BillDraft(supplierName: 'Shree Sai Pharma', invoiceNumber: 'SSP/1', lines: [
+        BillDraftLine(rawText: 'DOLO 650 ...', medicineId: 'dolo', batchNumber: 'DL2401', expiryMonth: 12, packs: 4),
+      ]),
+      ocrText: 'SHREE SAI PHARMA',
+      jpeg: jpeg,
+    );
+    expect(scan.status, BillScanStatus.draft);
+    expect(await asCounter.billScanImage(scan.id), jpeg);
+    await expectLater(asCounter.setBillScanStatus(scan.id, BillScanStatus.received), throwsA(isA<NotPermittedException>()));
+
+    final asOwner = as(owner);
+    final draft = (await asOwner.watchBillScans().first).single.draft;
+    await asOwner.updateBillScanDraft(scan.id, draft.copyWith(invoiceNumber: 'SSP/0001'));
+    await asOwner.setBillScanStatus(scan.id, BillScanStatus.received, receivedLines: 1);
+    final saved = (await asOwner.watchBillScans().first).single;
+    expect(saved.draft.invoiceNumber, 'SSP/0001');
+    expect(saved.status, BillScanStatus.received);
+    expect(saved.receivedLines, 1);
+    expect(saved.receivedByName, 'Owner');
+  });
+
+  test('an oversized bill photo is refused', () async {
+    await expectLater(
+      repo.createBillScan(draft: const BillDraft(), ocrText: '', jpeg: Uint8List(950 * 1024)),
+      throwsA(isA<OperationException>()),
+    );
+  });
+
+  test('stock received from a scanned bill is linked to it', () async {
+    await repo.receiveStock(StockReceipt(
+      medicine: dolo,
+      batchNumber: 'NEW1',
+      expiryMonth: 6,
+      expiryYear: DateTime.now().year + 2,
+      packs: 2,
+      purchasePricePaise: 2400,
+      mrpPaise: 3360,
+      billScanId: 'scan123',
+    ));
+    final purchase = (await repo.watchRecentPurchases().first).firstWhere((p) => p.batchNumber == 'NEW1');
+    expect(purchase.billScanId, 'scan123');
+  });
+
+  test('a phone sends scans to a counter, which marks them done', () async {
+    final station = ScanStation(
+        id: repo.newId(), storeId: storeId, name: 'Counter 1', active: true, uid: owner.uid, updatedAt: DateTime.now());
+    await repo.saveStation(station);
+    expect((await repo.watchStations().first).single.isAvailableAt(DateTime.now()), isTrue);
+
+    final phone = as(counter);
+    final event = ScanEvent(
+      id: phone.newId(),
+      storeId: storeId,
+      stationId: station.id,
+      rawBarcode: '8901234567890',
+      medicineId: 'dolo',
+      deviceLabel: 'iPhone',
+      createdBy: counter.uid,
+      createdByName: counter.name,
+      scannedAt: DateTime.now(),
+    );
+    await phone.sendScan(event);
+    var received = await repo.watchScansFor(station.id).first;
+    expect(received.single.medicineId, 'dolo');
+    expect(received.single.done, isFalse);
+    expect(await repo.watchScansFor('other-counter').first, isEmpty);
+
+    await repo.markScanDone(event.id);
+    received = await repo.watchScansFor(station.id).first;
+    expect(received.single.done, isTrue);
   });
 }

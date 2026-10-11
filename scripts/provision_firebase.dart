@@ -423,6 +423,7 @@ Future<void> main(List<String> arguments) async {
     ..addOption('options-out', defaultsTo: '../lib/firebase_options.dart')
     ..addOption('rules', defaultsTo: '../firestore.rules')
     ..addOption('indexes', defaultsTo: '../firestore.indexes.json')
+    ..addFlag('rules-only', negatable: false, help: 'Only deploy firestore.rules (after editing them)')
     ..addFlag('help', abbr: 'h', negatable: false);
   final args = parser.parse(arguments);
   if (args['help'] as bool) {
@@ -449,6 +450,10 @@ Future<void> main(List<String> arguments) async {
   final rulesApi = rules.FirebaseRulesApi(_client);
 
   try {
+    if (args['rules-only'] as bool) {
+      await _deployRules(rulesApi, args['rules'] as String);
+      return;
+    }
     final configs = await _registerApps();
     await _writeOptions(args['options-out'] as String, configs);
     await _enableEmailAuth();

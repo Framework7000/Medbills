@@ -15,6 +15,7 @@ class StockReceipt {
   final int mrpPaise; // per pack
   final String supplierName;
   final String supplierInvoiceNumber;
+  final String? billScanId; // the photographed bill this came from
 
   const StockReceipt({
     required this.medicine,
@@ -27,6 +28,7 @@ class StockReceipt {
     required this.mrpPaise,
     this.supplierName = '',
     this.supplierInvoiceNumber = '',
+    this.billScanId,
   });
 
   String get normalisedBatchNumber => Batch.normaliseBatchNumber(batchNumber);

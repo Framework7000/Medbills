@@ -315,6 +315,11 @@ class GlobalCatalogueRepository {
 
   int get length => _seedMedicines.length;
 
+  CatalogueEntry? byId(String id) {
+    final m = _seedMedicines.where((m) => m.id == id).firstOrNull;
+    return m == null ? null : CatalogueEntry(medicine: m, referenceMrpPaise: referenceMrpFor(id));
+  }
+
   int referenceMrpFor(String catalogueId) {
     // _referenceMrpPaise is filled while _seedMedicines is first built.
     if (_seedMedicines.isEmpty) return 0;

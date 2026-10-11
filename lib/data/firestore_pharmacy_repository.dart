@@ -1,10 +1,14 @@
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../domain/models/batch.dart';
+import '../domain/models/bill_scan.dart';
 import '../domain/models/customer_credit.dart';
 import '../domain/models/medicine.dart';
 import '../domain/models/purchase_record.dart';
 import '../domain/models/sale_invoice.dart';
+import '../domain/models/scan_link.dart';
 import '../domain/models/store_profile.dart';
 import '../domain/services/billing_calculator.dart';
 import '../domain/services/checkout_engine.dart';
@@ -42,6 +46,13 @@ class FirestorePharmacyRepository implements PharmacyRepository {
   CollectionReference<Map<String, dynamic>> get _purchases => _store.collection('purchases');
   CollectionReference<Map<String, dynamic>> get _customers => _store.collection('customers');
   CollectionReference<Map<String, dynamic>> get _audit => _store.collection('auditLog');
+  CollectionReference<Map<String, dynamic>> get _billScans => _store.collection('billScans');
+  CollectionReference<Map<String, dynamic>> get _billImages => _store.collection('billScanImages');
+  CollectionReference<Map<String, dynamic>> get _stations => _store.collection('stations');
+  CollectionReference<Map<String, dynamic>> get _scanEvents => _store.collection('scanEvents');
+
+  /// Firestore documents are limited to 1 MiB; keep the picture well under.
+  static const maxImageBytes = 900 * 1024;
 
   /// Firestore returns [Timestamp]s; domain models only know [DateTime].
   static Object? _normalise(Object? value) {
@@ -330,6 +341,7 @@ class FirestorePharmacyRepository implements PharmacyRepository {
           mrpPaise: receipt.mrpPaise,
           supplierName: receipt.supplierName.trim(),
           supplierInvoiceNumber: receipt.supplierInvoiceNumber.trim(),
+          billScanId: receipt.billScanId,
           createdAt: now,
           createdBy: actor.uid,
           createdByName: actor.name,
@@ -428,6 +440,87 @@ class FirestorePharmacyRepository implements PharmacyRepository {
       ..set(_audit.doc(), _auditEntry('store_updated', storeId, profile.name));
     await batch.commit();
   }
+
+  // ------------------------------------------------ photographed supplier bills
+
+  @override
+  Stream<List<BillScan>> watchBillScans({int limit = 60}) => _billScans
+      .orderBy('createdAt', descending: true)
+      .limit(limit)
+      .snapshots()
+      .map((q) => q.docs.map((d) => BillScan.fromMap(_read(d))).toList());
+
+  @override
+  Future<BillScan> createBillScan({required BillDraft draft, required String ocrText, Uint8List? jpeg}) async {
+    if (jpeg != null && jpeg.length > maxImageBytes) {
+      throw const OperationException(['The bill photo is too large. Take it again a little further away.']);
+    }
+    final ref = _billScans.doc();
+    final scan = BillScan(
+      id: ref.id,
+      storeId: storeId,
+      createdAt: DateTime.now(),
+      createdBy: actor.uid,
+      createdByName: actor.name,
+      draft: draft,
+      ocrText: ocrText,
+      hasImage: jpeg != null,
+    );
+    final batch = _db.batch()..set(ref, scan.toMap());
+    if (jpeg != null) {
+      batch.set(_billImages.doc(ref.id), {'storeId': storeId, 'createdBy': actor.uid, 'jpeg': Blob(jpeg)});
+    }
+    await batch.commit();
+    return scan;
+  }
+
+  @override
+  Future<void> updateBillScanDraft(String id, BillDraft draft) =>
+      _billScans.doc(id).update({'draft': draft.toMap()});
+
+  @override
+  Future<Uint8List?> billScanImage(String id) async {
+    final snap = await _billImages.doc(id).get();
+    final blob = snap.data()?['jpeg'];
+    return blob is Blob ? blob.bytes : null;
+  }
+
+  @override
+  Future<void> setBillScanStatus(String id, BillScanStatus status, {int receivedLines = 0}) async {
+    if (status == BillScanStatus.received) requireManager(actor, 'receive a supplier bill');
+    await _billScans.doc(id).update({
+      'status': status.name,
+      if (status == BillScanStatus.received) ...{
+        'receivedLines': receivedLines,
+        'receivedAt': DateTime.now(),
+        'receivedByName': actor.name,
+      },
+    });
+  }
+
+  // ----------------------------------------------- phone → counter scanning
+
+  @override
+  Stream<List<ScanStation>> watchStations() =>
+      _stations.snapshots().map((q) => q.docs.map((d) => ScanStation.fromMap(_read(d))).toList());
+
+  @override
+  Future<void> saveStation(ScanStation station) => _stations.doc(station.id).set(station.toMap());
+
+  @override
+  Future<void> sendScan(ScanEvent event) => _scanEvents.doc(event.id).set(event.toMap());
+
+  @override
+  Stream<List<ScanEvent>> watchScansFor(String stationId) => _scanEvents
+      .where('stationId', isEqualTo: stationId)
+      .snapshots()
+      .map((q) => q.docs.map((d) => ScanEvent.fromMap(_read(d))).toList());
+
+  @override
+  Future<void> markScanDone(String eventId) => _scanEvents.doc(eventId).update({'status': 'done'});
+
+  @override
+  String newId() => _store.collection('_ids').doc().id;
 
   @override
   void dispose() {}

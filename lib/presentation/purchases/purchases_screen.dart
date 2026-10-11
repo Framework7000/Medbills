@@ -3,16 +3,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../data/repositories/global_catalogue_repository.dart';
 import '../../domain/models/medicine.dart';
 import '../../domain/models/purchase_record.dart';
-import '../../domain/models/schedule_type.dart';
 import '../../domain/services/billing_calculator.dart';
 import '../../domain/services/pack_units.dart';
 import '../../domain/services/stock_receipt.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../state/providers.dart';
-import '../inventory/medicine_edit_dialog.dart';
+import '../../platform/device_features.dart';
+import '../scan/scan_flows.dart';
+import 'bill_scan_screen.dart';
+import 'medicine_picker.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
@@ -34,15 +35,24 @@ class PurchasesScreen extends ConsumerWidget {
           ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               SizedBox(width: 460, child: SingleChildScrollView(padding: const EdgeInsets.all(Space.l), child: form)),
               const VerticalDivider(width: 1),
-              Expanded(child: history),
+              Expanded(
+                child: DefaultTabController(
+                  length: 2,
+                  child: Column(children: [
+                    const TabBar(tabs: [Tab(text: 'Received stock'), Tab(text: 'Scanned bills')]),
+                    Expanded(child: TabBarView(children: [history, const BillScanList()])),
+                  ]),
+                ),
+              ),
             ])
           : DefaultTabController(
-              length: 2,
+              length: 3,
               child: Column(children: [
-                const TabBar(tabs: [Tab(text: 'Receive stock'), Tab(text: 'History')]),
+                const TabBar(tabs: [Tab(text: 'Receive'), Tab(text: 'Bills'), Tab(text: 'History')]),
                 Expanded(
                   child: TabBarView(children: [
                     SingleChildScrollView(padding: const EdgeInsets.all(Space.l), child: form),
+                    const BillScanList(),
                     history,
                   ]),
                 ),
@@ -88,13 +98,37 @@ class _ReceiveStockFormState extends ConsumerState<_ReceiveStockForm> {
   }
 
   Future<void> _chooseMedicine() async {
-    final chosen = await showDialog<_PickedMedicine>(context: context, builder: (_) => const _MedicinePicker());
+    final chosen = await pickMedicine(context);
     if (chosen == null || !mounted) return;
     setState(() {
       _medicine = chosen.medicine;
       if (chosen.referenceMrpPaise > 0 && _mrp.text.isEmpty) {
         _mrp.text = formatRupees(chosen.referenceMrpPaise, symbol: false).replaceAll(',', '');
       }
+    });
+  }
+
+  /// Fills medicine, batch, expiry and MRP from a photo of the pack.
+  Future<void> _readPack() async {
+    final store = (ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{}).values.map((s) => s.medicine).toList();
+    final inStore = {for (final m in store) m.catalogueId ?? m.id};
+    final medicines = [
+      ...store,
+      ...ref.read(catalogueProvider).search('').map((e) => e.medicine).where((m) => !inStore.contains(m.id)),
+    ];
+    final scan = await scanPackPhoto(context, medicines: medicines);
+    if (scan == null || !mounted) return;
+    final info = scan.info;
+    setState(() {
+      _medicine = scan.medicine;
+      if (info.batchNumber != null) _batch.text = info.batchNumber!;
+      if (info.hasExpiry) {
+        _expiryMonth = info.expiryMonth;
+        final now = DateTime.now().year;
+        if (info.expiryYear! >= now && info.expiryYear! <= now + 10) _expiryYear = info.expiryYear!;
+      }
+      final mrp = info.mrpPaise ?? ref.read(catalogueProvider).byId(scan.medicine.catalogueId ?? scan.medicine.id)?.referenceMrpPaise;
+      if (mrp != null && mrp > 0) _mrp.text = formatRupees(mrp, symbol: false).replaceAll(',', '');
     });
   }
 
@@ -166,7 +200,21 @@ class _ReceiveStockFormState extends ConsumerState<_ReceiveStockForm> {
     return Form(
       key: _formKey,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('Supplier delivery', style: text.titleMedium),
+        FilledButton.tonalIcon(
+          onPressed: () => captureSupplierBill(context, ref),
+          icon: const Icon(Icons.document_scanner_outlined),
+          label: Text(DeviceFeatures.textReading ? 'Scan supplier bill' : 'Add supplier bill photo'),
+        ),
+        const SizedBox(height: Space.xs),
+        Text(
+          DeviceFeatures.textReading
+              ? 'Reads supplier, bill no., GSTIN and every line; you check it before stock is added.'
+              : 'Bills photographed on the phone appear under "Scanned bills" on every device.',
+          style: text.bodySmall?.copyWith(color: AppColors.muted),
+        ),
+        const SizedBox(height: Space.l),
+        Text('Or enter one line by hand', style: text.titleMedium),
+        const SizedBox(height: Space.s),
         const SizedBox(height: Space.s),
         pair(
           TextFormField(controller: _supplier, decoration: const InputDecoration(labelText: 'Supplier / distributor'),
@@ -174,7 +222,11 @@ class _ReceiveStockFormState extends ConsumerState<_ReceiveStockForm> {
           TextFormField(controller: _supplierInvoice, decoration: const InputDecoration(labelText: 'Supplier bill no.')),
         ),
         const SizedBox(height: Space.l),
-        Text('Medicine', style: text.titleMedium),
+        Row(children: [
+          Expanded(child: Text('Medicine', style: text.titleMedium)),
+          if (DeviceFeatures.textReading)
+            TextButton.icon(onPressed: _readPack, icon: const Icon(Icons.photo_camera_outlined), label: const Text('Read pack')),
+        ]),
         const SizedBox(height: Space.s),
         Card(
           child: ListTile(
@@ -279,125 +331,6 @@ class _ReceiveStockFormState extends ConsumerState<_ReceiveStockForm> {
           label: const Text('Receive stock'),
         ),
       ]),
-    );
-  }
-}
-
-class _PickedMedicine {
-  const _PickedMedicine(this.medicine, this.referenceMrpPaise);
-  final Medicine medicine;
-  final int referenceMrpPaise;
-}
-
-class _MedicinePicker extends ConsumerStatefulWidget {
-  const _MedicinePicker();
-
-  @override
-  ConsumerState<_MedicinePicker> createState() => _MedicinePickerState();
-}
-
-class _MedicinePickerState extends ConsumerState<_MedicinePicker> {
-  final _query = TextEditingController();
-
-  @override
-  void dispose() {
-    _query.dispose();
-    super.dispose();
-  }
-
-  Future<void> _createNew() async {
-    final repo = ref.read(repositoryProvider)!;
-    final draft = Medicine(
-      id: repo.newMedicineId(),
-      storeId: repo.storeId,
-      name: _query.text.trim(),
-      genericName: '',
-      manufacturer: '',
-      type: '',
-      packSizeLabel: '',
-      unitsPerPack: 1,
-      hsnCode: '3004',
-      gstRate: 12.0,
-      scheduleType: ScheduleType.unknown,
-      minStock: 0,
-      shelfLocation: '',
-      updatedAt: DateTime.now(),
-    );
-    final created = await showMedicineEditor(context, initial: draft, isNew: true, save: false);
-    if (created != null && mounted) Navigator.pop(context, _PickedMedicine(created, 0));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final index = ref.watch(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
-    final catalogue = ref.watch(catalogueProvider);
-    final q = _query.text.trim().toLowerCase();
-    final storeMatches = index.values
-        .where((s) => q.isEmpty || s.medicine.name.toLowerCase().contains(q) || s.medicine.genericName.toLowerCase().contains(q))
-        .toList()
-      ..sort((a, b) => a.medicine.name.toLowerCase().compareTo(b.medicine.name.toLowerCase()));
-    final inStoreCatalogueIds = index.values.map((s) => s.medicine.catalogueId ?? s.medicine.id).toSet();
-    final List<CatalogueEntry> catalogueMatches = q.isEmpty
-        ? const []
-        : catalogue.search(q).where((e) => !inStoreCatalogueIds.contains(e.medicine.id)).toList();
-    final text = Theme.of(context).textTheme;
-
-    return AlertDialog(
-      title: const Text('Choose medicine'),
-      contentPadding: const EdgeInsets.fromLTRB(Space.xl, Space.l, Space.xl, 0),
-      content: SizedBox(
-        width: 480,
-        height: 460,
-        child: Column(children: [
-          TextField(
-            controller: _query,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: 'Search brand or generic', prefixIcon: Icon(Icons.search)),
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: Space.s),
-          Expanded(
-            child: ListView(children: [
-              if (storeMatches.isNotEmpty) Padding(
-                padding: const EdgeInsets.symmetric(vertical: Space.s),
-                child: Text('In your store', style: text.labelLarge?.copyWith(color: AppColors.muted)),
-              ),
-              for (final s in storeMatches.take(50))
-                ListTile(
-                  dense: true,
-                  title: Text(s.medicine.name, overflow: TextOverflow.ellipsis),
-                  subtitle: Text('${s.medicine.packSizeLabel} · ${PackUnits.describe(s.sellableUnits, s.medicine.unitsPerPack)} in stock',
-                      overflow: TextOverflow.ellipsis),
-                  onTap: () => Navigator.pop(
-                    context,
-                    _PickedMedicine(s.medicine, s.nextBatch?.mrpPaise ?? (s.batches.isEmpty ? 0 : s.batches.last.mrpPaise)),
-                  ),
-                ),
-              if (catalogueMatches.isNotEmpty) Padding(
-                padding: const EdgeInsets.symmetric(vertical: Space.s),
-                child: Text('Master catalogue (adds to your store)', style: text.labelLarge?.copyWith(color: AppColors.muted)),
-              ),
-              for (final e in catalogueMatches.take(50))
-                ListTile(
-                  dense: true,
-                  title: Text(e.medicine.name, overflow: TextOverflow.ellipsis),
-                  subtitle: Text('${e.medicine.manufacturer} · ${e.medicine.packSizeLabel}', overflow: TextOverflow.ellipsis),
-                  trailing: const Icon(Icons.add_circle_outline),
-                  onTap: () => Navigator.pop(context, _PickedMedicine(e.medicine, e.referenceMrpPaise)),
-                ),
-              if (storeMatches.isEmpty && catalogueMatches.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(Space.xl),
-                  child: Text('Nothing found. Create it as a new medicine.', textAlign: TextAlign.center),
-                ),
-            ]),
-          ),
-        ]),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        OutlinedButton.icon(onPressed: _createNew, icon: const Icon(Icons.add), label: const Text('New medicine')),
-      ],
     );
   }
 }

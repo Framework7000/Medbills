@@ -16,6 +16,7 @@ class PurchaseRecord {
   final int mrpPaise; // per pack
   final String supplierName;
   final String supplierInvoiceNumber;
+  final String? billScanId;
   final DateTime createdAt;
   final String createdBy;
   final String createdByName;
@@ -35,6 +36,7 @@ class PurchaseRecord {
     required this.mrpPaise,
     required this.supplierName,
     required this.supplierInvoiceNumber,
+    this.billScanId,
     required this.createdAt,
     required this.createdBy,
     required this.createdByName,
@@ -63,6 +65,7 @@ class PurchaseRecord {
         'totalCostPaise': totalCostPaise,
         'supplierName': supplierName,
         'supplierInvoiceNumber': supplierInvoiceNumber,
+        'billScanId': billScanId,
         'createdAt': createdAt,
         'createdBy': createdBy,
         'createdByName': createdByName,
@@ -83,6 +86,7 @@ class PurchaseRecord {
         mrpPaise: readInt(map['mrpPaise']),
         supplierName: readString(map['supplierName']),
         supplierInvoiceNumber: readString(map['supplierInvoiceNumber']),
+        billScanId: map['billScanId'] as String?,
         createdAt: readDate(map['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
         createdBy: readString(map['createdBy']),
         createdByName: readString(map['createdByName']),

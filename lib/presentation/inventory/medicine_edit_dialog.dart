@@ -4,8 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/medicine.dart';
 import '../../domain/models/schedule_type.dart';
+import '../../domain/services/gs1_parser.dart';
 import '../../domain/services/pack_units.dart';
+import '../../platform/device_features.dart';
 import '../../state/providers.dart';
+import '../scan/barcode_scanner_screen.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
@@ -186,7 +189,21 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
             row([
               TextFormField(
                 controller: _barcode,
-                decoration: const InputDecoration(labelText: 'Barcode (EAN/GTIN)', helperText: 'Scan the pack to fill'),
+                decoration: InputDecoration(
+                  labelText: 'Barcode (EAN/GTIN)',
+                  helperText: 'Scan the pack to fill',
+                  suffixIcon: DeviceFeatures.cameraScanning
+                      ? IconButton(
+                          tooltip: 'Scan with camera',
+                          icon: const Icon(Icons.qr_code_scanner),
+                          onPressed: () async {
+                            final code = await scanSingleBarcode(context);
+                            final gtin = code == null ? null : (Gs1Parser.parse(code).gtin ?? code);
+                            if (gtin != null && RegExp(r'^\d{8,14}$').hasMatch(gtin)) _barcode.text = gtin;
+                          },
+                        )
+                      : null,
+                ),
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(14)],
               ),
             ]),

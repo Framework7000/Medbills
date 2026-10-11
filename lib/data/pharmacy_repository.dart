@@ -1,9 +1,13 @@
 import '../domain/models/app_user.dart';
+import 'dart:typed_data';
+
 import '../domain/models/batch.dart';
+import '../domain/models/bill_scan.dart';
 import '../domain/models/customer_credit.dart';
 import '../domain/models/medicine.dart';
 import '../domain/models/purchase_record.dart';
 import '../domain/models/sale_invoice.dart';
+import '../domain/models/scan_link.dart';
 import '../domain/models/store_profile.dart';
 import '../domain/services/checkout_engine.dart';
 import '../domain/services/stock_receipt.dart';
@@ -92,6 +96,32 @@ abstract class PharmacyRepository {
   });
 
   Future<void> updateStore(StoreProfile profile);
+
+  // ------------------------------------------------ photographed supplier bills
+
+  Stream<List<BillScan>> watchBillScans({int limit = 60});
+
+  /// Saves a photographed bill (any staff member may capture one). The
+  /// [jpeg] picture is stored separately and must be under 900 KB.
+  Future<BillScan> createBillScan({required BillDraft draft, required String ocrText, Uint8List? jpeg});
+
+  /// Saves corrections to a draft. Managers, or the person who captured it.
+  Future<void> updateBillScanDraft(String id, BillDraft draft);
+
+  Future<Uint8List?> billScanImage(String id);
+
+  /// Marks a bill received (managers, after its lines became stock) or
+  /// discarded (never deleted — the picture stays on record).
+  Future<void> setBillScanStatus(String id, BillScanStatus status, {int receivedLines = 0});
+
+  // ----------------------------------------------- phone → counter scanning
+
+  Stream<List<ScanStation>> watchStations();
+  Future<void> saveStation(ScanStation station);
+  Future<void> sendScan(ScanEvent event);
+  Stream<List<ScanEvent>> watchScansFor(String stationId);
+  Future<void> markScanDone(String eventId);
+  String newId();
 
   void dispose() {}
 }

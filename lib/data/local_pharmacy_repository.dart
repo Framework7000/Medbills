@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import '../domain/models/batch.dart';
+import '../domain/models/bill_scan.dart';
 import '../domain/models/customer_credit.dart';
 import '../domain/models/medicine.dart';
 import '../domain/models/purchase_record.dart';
 import '../domain/models/sale_invoice.dart';
+import '../domain/models/scan_link.dart';
 import '../domain/models/store_profile.dart';
 import '../domain/services/billing_calculator.dart';
 import '../domain/services/checkout_engine.dart';
@@ -46,6 +49,10 @@ class LocalPharmacyRepository implements PharmacyRepository {
   final _customers = <String, CustomerCredit>{};
   final _ledger = <String, List<CreditLedgerEntry>>{};
   final _counters = <String, int>{};
+  final _billScans = <String, BillScan>{};
+  final _billImages = <String, Uint8List>{};
+  final _stations = <String, ScanStation>{};
+  final _scanEvents = <String, ScanEvent>{};
   final _changes = StreamController<void>.broadcast();
   var _idCounter = 0;
 
@@ -276,6 +283,7 @@ class LocalPharmacyRepository implements PharmacyRepository {
       mrpPaise: receipt.mrpPaise,
       supplierName: receipt.supplierName.trim(),
       supplierInvoiceNumber: receipt.supplierInvoiceNumber.trim(),
+      billScanId: receipt.billScanId,
       createdAt: now,
       createdBy: actor.uid,
       createdByName: actor.name,
@@ -346,6 +354,87 @@ class LocalPharmacyRepository implements PharmacyRepository {
     _store = profile;
     _notify();
   }
+
+  // ------------------------------------------------ photographed supplier bills
+
+  @override
+  Stream<List<BillScan>> watchBillScans({int limit = 60}) => _watch(() =>
+      (_billScans.values.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt))).take(limit).toList());
+
+  @override
+  Future<BillScan> createBillScan({required BillDraft draft, required String ocrText, Uint8List? jpeg}) async {
+    if (jpeg != null && jpeg.length > 900 * 1024) {
+      throw const OperationException(['The bill photo is too large. Take it again a little further away.']);
+    }
+    final scan = BillScan(
+      id: _nextId('bill'),
+      storeId: storeId,
+      createdAt: DateTime.now(),
+      createdBy: actor.uid,
+      createdByName: actor.name,
+      draft: draft,
+      ocrText: ocrText,
+      hasImage: jpeg != null,
+    );
+    _billScans[scan.id] = scan;
+    if (jpeg != null) _billImages[scan.id] = jpeg;
+    _notify();
+    return scan;
+  }
+
+  @override
+  Future<void> updateBillScanDraft(String id, BillDraft draft) async {
+    final scan = _billScans[id];
+    if (scan == null) throw const OperationException(['Bill not found.']);
+    _billScans[id] = scan.copyWith(draft: draft);
+    _notify();
+  }
+
+  @override
+  Future<Uint8List?> billScanImage(String id) async => _billImages[id];
+
+  @override
+  Future<void> setBillScanStatus(String id, BillScanStatus status, {int receivedLines = 0}) async {
+    if (status == BillScanStatus.received) requireManager(actor, 'receive a supplier bill');
+    final scan = _billScans[id];
+    if (scan == null) throw const OperationException(['Bill not found.']);
+    _billScans[id] = status == BillScanStatus.received
+        ? scan.copyWith(status: status, receivedLines: receivedLines, receivedAt: DateTime.now(), receivedByName: actor.name)
+        : scan.copyWith(status: status);
+    _notify();
+  }
+
+  // ----------------------------------------------- phone → counter scanning
+
+  @override
+  Stream<List<ScanStation>> watchStations() => _watch(() => _stations.values.toList());
+
+  @override
+  Future<void> saveStation(ScanStation station) async {
+    _stations[station.id] = station;
+    _notify();
+  }
+
+  @override
+  Future<void> sendScan(ScanEvent event) async {
+    _scanEvents[event.id] = event;
+    _notify();
+  }
+
+  @override
+  Stream<List<ScanEvent>> watchScansFor(String stationId) =>
+      _watch(() => _scanEvents.values.where((e) => e.stationId == stationId).toList());
+
+  @override
+  Future<void> markScanDone(String eventId) async {
+    final e = _scanEvents[eventId];
+    if (e == null) return;
+    _scanEvents[eventId] = ScanEvent.fromMap({...e.toMap(), 'status': 'done'});
+    _notify();
+  }
+
+  @override
+  String newId() => _nextId('id');
 
   @override
   void dispose() => _changes.close();
