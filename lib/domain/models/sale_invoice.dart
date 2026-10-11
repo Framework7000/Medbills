@@ -1,161 +1,228 @@
-import 'package:decimal/decimal.dart';
+import '../services/billing_calculator.dart';
+import 'date_value.dart';
+import 'schedule_type.dart';
 
-/// A single line item within a [SaleInvoice]. Rule 12: money is integer paise.
-class InvoiceItemRecord {
-  final String medicineId;
-  final String name;
-  final String batchNumber;
-  final String expiry;
-  final int quantity;
-  final int mrpPaise;
-  final double gstRate;
+enum PaymentMode {
+  cash('Cash'),
+  upi('UPI'),
+  card('Card'),
+  credit('Credit');
 
-  const InvoiceItemRecord({
-    required this.medicineId,
-    required this.name,
-    required this.batchNumber,
-    required this.expiry,
-    required this.quantity,
-    required this.mrpPaise,
-    required this.gstRate,
-  });
+  const PaymentMode(this.label);
+  final String label;
 
-  int get totalPaise => mrpPaise * quantity;
-
-  Decimal get totalRupees =>
-      (Decimal.fromInt(totalPaise) / Decimal.fromInt(100)).toDecimal();
-
-  Map<String, dynamic> toMap() {
-    return {
-      'medicineId': medicineId,
-      'name': name,
-      'batchNumber': batchNumber,
-      'expiry': expiry,
-      'quantity': quantity,
-      'mrpPaise': mrpPaise,
-      'gstRate': gstRate,
-    };
-  }
-
-  factory InvoiceItemRecord.fromMap(Map<String, dynamic> map) {
-    return InvoiceItemRecord(
-      medicineId: map['medicineId'] as String? ?? '',
-      name: map['name'] as String? ?? '',
-      batchNumber: map['batchNumber'] as String? ?? '',
-      expiry: map['expiry'] as String? ?? '',
-      quantity: (map['quantity'] as num?)?.toInt() ?? 0,
-      mrpPaise: (map['mrpPaise'] as num?)?.toInt() ?? 0,
-      gstRate: (map['gstRate'] as num?)?.toDouble() ?? 0.0,
-    );
-  }
+  static PaymentMode fromString(String? value) => PaymentMode.values.firstWhere(
+        (m) => m.name == value || m.label == value,
+        orElse: () => PaymentMode.cash,
+      );
 }
 
-/// An append-only sale record (Rule 10: never deleted, only cancelled with
-/// an audit entry).
-class SaleInvoice {
-  final String invoiceNumber;
-  final String storeId; // Rule 8
-  final DateTime timestamp;
-  final String customerName;
-  final String customerPhone;
-  final String paymentMode; // Cash, UPI, Card, Credit
-  final int grandTotalPaise;
-  final int gstTotalPaise;
-  final List<InvoiceItemRecord> items;
-  final bool isCancelled;
-  final String? cancellationReason;
+enum SaleStatus { completed, cancelled }
 
-  // Rule 9: captured only when the cart contains a Schedule H1 item —
-  // CDSCO requires retaining patient + prescriber identity for 3 years.
-  final String? patientName;
-  final String? patientPhone;
-  final String? doctorName;
-  final String? doctorRegistrationNumber;
+/// One invoice line: exactly one batch of one medicine.
+class SaleLine {
+  final String medicineId;
+  final String batchId;
+  final String name;
+  final String batchNumber;
+  final DateTime expiryDate;
+  final String hsnCode;
+  final double gstRate;
+  final ScheduleType scheduleType;
+  final int unitsPerPack;
+  final int quantity; // base units
+  final int mrpPaise; // per pack, GST-inclusive
+  final int lineTotalPaise;
+  final int costPaise; // purchase cost of this line, for profit reporting
 
-  const SaleInvoice({
-    required this.invoiceNumber,
-    required this.storeId,
-    required this.timestamp,
-    required this.customerName,
-    required this.customerPhone,
-    required this.paymentMode,
-    required this.grandTotalPaise,
-    required this.gstTotalPaise,
-    required this.items,
-    this.isCancelled = false,
-    this.cancellationReason,
-    this.patientName,
-    this.patientPhone,
-    this.doctorName,
-    this.doctorRegistrationNumber,
+  const SaleLine({
+    required this.medicineId,
+    required this.batchId,
+    required this.name,
+    required this.batchNumber,
+    required this.expiryDate,
+    required this.hsnCode,
+    required this.gstRate,
+    required this.scheduleType,
+    required this.unitsPerPack,
+    required this.quantity,
+    required this.mrpPaise,
+    required this.lineTotalPaise,
+    required this.costPaise,
   });
 
-  Decimal get grandTotalRupees =>
-      (Decimal.fromInt(grandTotalPaise) / Decimal.fromInt(100)).toDecimal();
+  BillLine get billLine => BillLine(lineTotalPaise: lineTotalPaise, gstRate: gstRate);
 
-  Decimal get gstTotalRupees =>
-      (Decimal.fromInt(gstTotalPaise) / Decimal.fromInt(100)).toDecimal();
+  Map<String, dynamic> toMap() => {
+        'medicineId': medicineId,
+        'batchId': batchId,
+        'name': name,
+        'batchNumber': batchNumber,
+        'expiryDate': expiryDate,
+        'hsnCode': hsnCode,
+        'gstRate': gstRate,
+        'scheduleType': scheduleType.code,
+        'unitsPerPack': unitsPerPack,
+        'quantity': quantity,
+        'mrpPaise': mrpPaise,
+        'lineTotalPaise': lineTotalPaise,
+        'costPaise': costPaise,
+      };
 
-  SaleInvoice copyWith({
-    bool? isCancelled,
-    String? cancellationReason,
-  }) {
-    return SaleInvoice(
-      invoiceNumber: invoiceNumber,
-      storeId: storeId,
-      timestamp: timestamp,
-      customerName: customerName,
-      customerPhone: customerPhone,
-      paymentMode: paymentMode,
-      grandTotalPaise: grandTotalPaise,
-      gstTotalPaise: gstTotalPaise,
-      items: items,
-      isCancelled: isCancelled ?? this.isCancelled,
-      cancellationReason: cancellationReason ?? this.cancellationReason,
-    );
-  }
+  factory SaleLine.fromMap(Map<String, dynamic> map) => SaleLine(
+        medicineId: readString(map['medicineId']),
+        batchId: readString(map['batchId']),
+        name: readString(map['name']),
+        batchNumber: readString(map['batchNumber']),
+        expiryDate: readDate(map['expiryDate']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+        hsnCode: readString(map['hsnCode']),
+        gstRate: readDouble(map['gstRate']),
+        scheduleType: ScheduleType.fromString(map['scheduleType'] as String?),
+        unitsPerPack: readInt(map['unitsPerPack'], 1),
+        quantity: readInt(map['quantity']),
+        mrpPaise: readInt(map['mrpPaise']),
+        lineTotalPaise: readInt(map['lineTotalPaise']),
+        costPaise: readInt(map['costPaise']),
+      );
+}
 
-  Map<String, dynamic> toMap() {
-    return {
-      'invoiceNumber': invoiceNumber,
-      'storeId': storeId,
-      'timestamp': timestamp.toIso8601String(),
-      'customerName': customerName,
-      'customerPhone': customerPhone,
-      'paymentMode': paymentMode,
-      'grandTotalPaise': grandTotalPaise,
-      'gstTotalPaise': gstTotalPaise,
-      'items': items.map((e) => e.toMap()).toList(),
-      'isCancelled': isCancelled,
-      'cancellationReason': cancellationReason,
-      'patientName': patientName,
-      'patientPhone': patientPhone,
-      'doctorName': doctorName,
-      'doctorRegistrationNumber': doctorRegistrationNumber,
-    };
-  }
+/// Patient + prescriber record required for Schedule H1/X sales (Rule 9).
+class PrescriptionRecord {
+  final String patientName;
+  final String patientPhone;
+  final String doctorName;
+  final String doctorRegistrationNumber;
+
+  const PrescriptionRecord({
+    required this.patientName,
+    required this.patientPhone,
+    required this.doctorName,
+    required this.doctorRegistrationNumber,
+  });
+
+  bool get isComplete =>
+      patientName.trim().isNotEmpty &&
+      patientPhone.trim().isNotEmpty &&
+      doctorName.trim().isNotEmpty &&
+      doctorRegistrationNumber.trim().isNotEmpty;
+
+  Map<String, dynamic> toMap() => {
+        'patientName': patientName,
+        'patientPhone': patientPhone,
+        'doctorName': doctorName,
+        'doctorRegistrationNumber': doctorRegistrationNumber,
+      };
+
+  factory PrescriptionRecord.fromMap(Map<String, dynamic> map) => PrescriptionRecord(
+        patientName: readString(map['patientName']),
+        patientPhone: readString(map['patientPhone']),
+        doctorName: readString(map['doctorName']),
+        doctorRegistrationNumber: readString(map['doctorRegistrationNumber']),
+      );
+}
+
+/// An append-only sale record (Rule 10: never deleted — only cancelled with
+/// a reason and an audit entry).
+class SaleInvoice {
+  final String id;
+  final String storeId; // Rule 8
+  final String invoiceNumber;
+  final DateTime createdAt;
+  final String createdBy;
+  final String createdByName;
+  final String customerName;
+  final String customerPhone;
+  final String? customerId; // set for credit (udhaar) sales
+  final PaymentMode paymentMode;
+  final List<SaleLine> lines;
+  final List<GstSlab> slabs;
+  final int grossPaise;
+  final int payablePaise;
+  final PrescriptionRecord? prescription;
+  final SaleStatus status;
+  final String? cancellationReason;
+  final DateTime? cancelledAt;
+  final String? cancelledByName;
+
+  const SaleInvoice({
+    required this.id,
+    required this.storeId,
+    required this.invoiceNumber,
+    required this.createdAt,
+    required this.createdBy,
+    required this.createdByName,
+    required this.customerName,
+    required this.customerPhone,
+    this.customerId,
+    required this.paymentMode,
+    required this.lines,
+    required this.slabs,
+    required this.grossPaise,
+    required this.payablePaise,
+    this.prescription,
+    this.status = SaleStatus.completed,
+    this.cancellationReason,
+    this.cancelledAt,
+    this.cancelledByName,
+  });
+
+  bool get isCancelled => status == SaleStatus.cancelled;
+  int get taxablePaise => slabs.fold(0, (sum, s) => sum + s.taxablePaise);
+  int get gstPaise => slabs.fold(0, (sum, s) => sum + s.gstPaise);
+  int get roundOffPaise => payablePaise - grossPaise;
+  int get costPaise => lines.fold(0, (sum, l) => sum + l.costPaise);
+  int get itemCount => lines.length;
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'storeId': storeId,
+        'invoiceNumber': invoiceNumber,
+        'createdAt': createdAt,
+        'createdBy': createdBy,
+        'createdByName': createdByName,
+        'customerName': customerName,
+        'customerPhone': customerPhone,
+        'customerId': customerId,
+        'paymentMode': paymentMode.name,
+        'lines': lines.map((l) => l.toMap()).toList(),
+        'slabs': slabs.map((s) => s.toMap()).toList(),
+        'grossPaise': grossPaise,
+        'taxablePaise': taxablePaise,
+        'gstPaise': gstPaise,
+        'payablePaise': payablePaise,
+        'prescription': prescription?.toMap(),
+        'status': status.name,
+        'cancellationReason': cancellationReason,
+        'cancelledAt': cancelledAt,
+        'cancelledByName': cancelledByName,
+      };
 
   factory SaleInvoice.fromMap(Map<String, dynamic> map) {
+    List<Map<String, dynamic>> listOfMaps(Object? v) =>
+        ((v as List?) ?? const []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    final prescription = map['prescription'];
     return SaleInvoice(
-      invoiceNumber: map['invoiceNumber'] as String,
-      storeId: map['storeId'] as String? ?? 'store_primary',
-      timestamp: map['timestamp'] != null
-          ? DateTime.parse(map['timestamp'] as String)
-          : DateTime.now(),
-      customerName: map['customerName'] as String? ?? 'Walk-in Customer',
-      customerPhone: map['customerPhone'] as String? ?? '',
-      paymentMode: map['paymentMode'] as String? ?? 'Cash',
-      grandTotalPaise: (map['grandTotalPaise'] as num?)?.toInt() ?? 0,
-      gstTotalPaise: (map['gstTotalPaise'] as num?)?.toInt() ?? 0,
-      items: ((map['items'] as List?) ?? [])
-          .map((e) => InvoiceItemRecord.fromMap(Map<String, dynamic>.from(e as Map)))
-          .toList(),
-      isCancelled: map['isCancelled'] as bool? ?? false,
+      id: readString(map['id']),
+      storeId: readString(map['storeId'], 'store_primary'),
+      invoiceNumber: readString(map['invoiceNumber']),
+      createdAt: readDate(map['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      createdBy: readString(map['createdBy']),
+      createdByName: readString(map['createdByName']),
+      customerName: readString(map['customerName'], 'Walk-in Customer'),
+      customerPhone: readString(map['customerPhone']),
+      customerId: map['customerId'] as String?,
+      paymentMode: PaymentMode.fromString(map['paymentMode'] as String?),
+      lines: listOfMaps(map['lines']).map(SaleLine.fromMap).toList(),
+      slabs: listOfMaps(map['slabs']).map(GstSlab.fromMap).toList(),
+      grossPaise: readInt(map['grossPaise']),
+      payablePaise: readInt(map['payablePaise']),
+      prescription: prescription is Map
+          ? PrescriptionRecord.fromMap(Map<String, dynamic>.from(prescription))
+          : null,
+      status: map['status'] == 'cancelled' ? SaleStatus.cancelled : SaleStatus.completed,
       cancellationReason: map['cancellationReason'] as String?,
-      patientName: map['patientName'] as String?,
-      patientPhone: map['patientPhone'] as String?,
-      doctorName: map['doctorName'] as String?,
-      doctorRegistrationNumber: map['doctorRegistrationNumber'] as String?,
+      cancelledAt: readDate(map['cancelledAt']),
+      cancelledByName: map['cancelledByName'] as String?,
     );
   }
 }

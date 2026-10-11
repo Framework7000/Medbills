@@ -1,59 +1,74 @@
-import 'package:decimal/decimal.dart';
+import 'date_value.dart';
 
-enum CreditEntryType { creditSale, paymentReceived }
+enum CreditEntryType {
+  creditSale('Credit sale'),
+  paymentReceived('Payment received'),
+  saleCancelled('Sale cancelled');
 
-/// Rule 10: credit ledger is append-only. Balance is derived, never
-/// overwritten in place.
+  const CreditEntryType(this.label);
+  final String label;
+
+  /// Effect on the outstanding balance, in the direction of [amountPaise].
+  int signOf() => this == CreditEntryType.creditSale ? 1 : -1;
+}
+
+/// Rule 10: the credit (udhaar) ledger is append-only. The balance on the
+/// customer is maintained alongside, inside the same transaction.
 class CreditLedgerEntry {
   final String id;
+  final String storeId;
   final String customerId;
   final CreditEntryType type;
-  final int amountPaise; // Rule 12
+  final int amountPaise; // always positive; direction comes from [type]
   final String? invoiceNumber;
   final String notes;
   final DateTime timestamp;
+  final String createdBy;
+  final String createdByName;
 
   const CreditLedgerEntry({
     required this.id,
+    required this.storeId,
     required this.customerId,
     required this.type,
     required this.amountPaise,
     this.invoiceNumber,
     this.notes = '',
     required this.timestamp,
+    required this.createdBy,
+    required this.createdByName,
   });
 
-  Decimal get amountRupees =>
-      (Decimal.fromInt(amountPaise) / Decimal.fromInt(100)).toDecimal();
+  int get signedAmountPaise => amountPaise * type.signOf();
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'customerId': customerId,
-      'type': type.name,
-      'amountPaise': amountPaise,
-      'invoiceNumber': invoiceNumber,
-      'notes': notes,
-      'timestamp': timestamp.toIso8601String(),
-    };
-  }
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'storeId': storeId,
+        'customerId': customerId,
+        'type': type.name,
+        'amountPaise': amountPaise,
+        'invoiceNumber': invoiceNumber,
+        'notes': notes,
+        'timestamp': timestamp,
+        'createdBy': createdBy,
+        'createdByName': createdByName,
+      };
 
-  factory CreditLedgerEntry.fromMap(Map<String, dynamic> map) {
-    return CreditLedgerEntry(
-      id: map['id'] as String,
-      customerId: map['customerId'] as String,
-      type: CreditEntryType.values.firstWhere(
-        (e) => e.name == map['type'],
-        orElse: () => CreditEntryType.creditSale,
-      ),
-      amountPaise: (map['amountPaise'] as num?)?.toInt() ?? 0,
-      invoiceNumber: map['invoiceNumber'] as String?,
-      notes: map['notes'] as String? ?? '',
-      timestamp: map['timestamp'] != null
-          ? DateTime.parse(map['timestamp'] as String)
-          : DateTime.now(),
-    );
-  }
+  factory CreditLedgerEntry.fromMap(Map<String, dynamic> map) => CreditLedgerEntry(
+        id: readString(map['id']),
+        storeId: readString(map['storeId'], 'store_primary'),
+        customerId: readString(map['customerId']),
+        type: CreditEntryType.values.firstWhere(
+          (e) => e.name == map['type'],
+          orElse: () => CreditEntryType.creditSale,
+        ),
+        amountPaise: readInt(map['amountPaise']),
+        invoiceNumber: map['invoiceNumber'] as String?,
+        notes: readString(map['notes']),
+        timestamp: readDate(map['timestamp']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+        createdBy: readString(map['createdBy']),
+        createdByName: readString(map['createdByName']),
+      );
 }
 
 class CustomerCredit {
@@ -61,7 +76,7 @@ class CustomerCredit {
   final String storeId;
   final String name;
   final String phoneNumber;
-  final int creditLimitPaise;
+  final int creditLimitPaise; // 0 = no limit set
   final int outstandingBalancePaise;
   final DateTime createdAt;
 
@@ -75,48 +90,37 @@ class CustomerCredit {
     required this.createdAt,
   });
 
-  bool get isOverLimit => outstandingBalancePaise > creditLimitPaise;
+  bool get isOverLimit => creditLimitPaise > 0 && outstandingBalancePaise > creditLimitPaise;
 
-  Decimal get outstandingBalanceRupees =>
-      (Decimal.fromInt(outstandingBalancePaise) / Decimal.fromInt(100)).toDecimal();
-
-  CustomerCredit copyWith({int? outstandingBalancePaise}) {
+  CustomerCredit copyWith({String? name, String? phoneNumber, int? creditLimitPaise, int? outstandingBalancePaise}) {
     return CustomerCredit(
       id: id,
       storeId: storeId,
-      name: name,
-      phoneNumber: phoneNumber,
-      creditLimitPaise: creditLimitPaise,
-      outstandingBalancePaise:
-          outstandingBalancePaise ?? this.outstandingBalancePaise,
+      name: name ?? this.name,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+      creditLimitPaise: creditLimitPaise ?? this.creditLimitPaise,
+      outstandingBalancePaise: outstandingBalancePaise ?? this.outstandingBalancePaise,
       createdAt: createdAt,
     );
   }
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'storeId': storeId,
-      'name': name,
-      'phoneNumber': phoneNumber,
-      'creditLimitPaise': creditLimitPaise,
-      'outstandingBalancePaise': outstandingBalancePaise,
-      'createdAt': createdAt.toIso8601String(),
-    };
-  }
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'storeId': storeId,
+        'name': name,
+        'phoneNumber': phoneNumber,
+        'creditLimitPaise': creditLimitPaise,
+        'outstandingBalancePaise': outstandingBalancePaise,
+        'createdAt': createdAt,
+      };
 
-  factory CustomerCredit.fromMap(Map<String, dynamic> map) {
-    return CustomerCredit(
-      id: map['id'] as String,
-      storeId: map['storeId'] as String? ?? 'store_primary',
-      name: map['name'] as String? ?? '',
-      phoneNumber: map['phoneNumber'] as String? ?? '',
-      creditLimitPaise: (map['creditLimitPaise'] as num?)?.toInt() ?? 0,
-      outstandingBalancePaise:
-          (map['outstandingBalancePaise'] as num?)?.toInt() ?? 0,
-      createdAt: map['createdAt'] != null
-          ? DateTime.parse(map['createdAt'] as String)
-          : DateTime.now(),
-    );
-  }
+  factory CustomerCredit.fromMap(Map<String, dynamic> map) => CustomerCredit(
+        id: readString(map['id']),
+        storeId: readString(map['storeId'], 'store_primary'),
+        name: readString(map['name']),
+        phoneNumber: readString(map['phoneNumber']),
+        creditLimitPaise: readInt(map['creditLimitPaise']),
+        outstandingBalancePaise: readInt(map['outstandingBalancePaise']),
+        createdAt: readDate(map['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      );
 }

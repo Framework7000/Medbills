@@ -1,58 +1,65 @@
-import '../models/batch.dart';
 import '../models/sale_invoice.dart';
 
 class ProfitLossReport {
-  final int totalSalesPaise;
-  final int totalCostPaise;
-  final int grossProfitPaise;
+  final int invoiceCount;
+  final int cancelledCount;
+  final int salesPaise; // amount billed at MRP, GST-inclusive (before round-off)
+  final int gstPaise;
+  final int costPaise; // purchase cost of the goods sold
+  final Map<PaymentMode, int> byPaymentMode; // payable amounts
+  final Map<double, int> gstBySlab;
 
   const ProfitLossReport({
-    required this.totalSalesPaise,
-    required this.totalCostPaise,
-    required this.grossProfitPaise,
+    required this.invoiceCount,
+    required this.cancelledCount,
+    required this.salesPaise,
+    required this.gstPaise,
+    required this.costPaise,
+    required this.byPaymentMode,
+    required this.gstBySlab,
   });
 
-  double get profitMarginPercentage {
-    if (totalSalesPaise == 0) return 0.0;
-    return (grossProfitPaise / totalSalesPaise) * 100;
-  }
+  int get grossProfitPaise => salesPaise - costPaise;
+
+  double get marginPercent => salesPaise == 0 ? 0 : grossProfitPaise * 100 / salesPaise;
 }
 
-/// All calculations performed in integer paise (Rule 12).
+/// All calculations in integer paise. Cancelled invoices are excluded from
+/// every total and only counted.
 class ProfitLossService {
-  /// [costLookup] maps `medicineId|batchNumber` to purchase price in paise,
-  /// derived from the batch used to fulfil that line item.
-  static ProfitLossReport calculate({
-    required List<SaleInvoice> invoices,
-    required Map<String, int> costLookup,
-  }) {
-    var totalSales = 0;
-    var totalCost = 0;
+  static ProfitLossReport calculate(Iterable<SaleInvoice> invoices) {
+    var count = 0;
+    var cancelled = 0;
+    var sales = 0;
+    var gst = 0;
+    var cost = 0;
+    final byMode = <PaymentMode, int>{};
+    final bySlab = <double, int>{};
 
     for (final invoice in invoices) {
-      if (invoice.isCancelled) continue;
-      for (final item in invoice.items) {
-        totalSales += item.totalPaise;
-        final key = '${item.medicineId}|${item.batchNumber}';
-        final unitCost = costLookup[key] ?? 0;
-        totalCost += unitCost * item.quantity;
+      if (invoice.isCancelled) {
+        cancelled++;
+        continue;
+      }
+      count++;
+      sales += invoice.grossPaise;
+      gst += invoice.gstPaise;
+      cost += invoice.costPaise;
+      byMode.update(invoice.paymentMode, (v) => v + invoice.payablePaise,
+          ifAbsent: () => invoice.payablePaise);
+      for (final slab in invoice.slabs) {
+        bySlab.update(slab.rate, (v) => v + slab.gstPaise, ifAbsent: () => slab.gstPaise);
       }
     }
 
     return ProfitLossReport(
-      totalSalesPaise: totalSales,
-      totalCostPaise: totalCost,
-      grossProfitPaise: totalSales - totalCost,
+      invoiceCount: count,
+      cancelledCount: cancelled,
+      salesPaise: sales,
+      gstPaise: gst,
+      costPaise: cost,
+      byPaymentMode: byMode,
+      gstBySlab: bySlab,
     );
-  }
-
-  static String costLookupKey(String medicineId, String batchNumber) =>
-      '$medicineId|$batchNumber';
-
-  static Map<String, int> buildCostLookup(List<Batch> batches) {
-    return {
-      for (final b in batches)
-        costLookupKey(b.medicineId, b.batchNumber): b.purchasePricePaise,
-    };
   }
 }

@@ -1,0 +1,154 @@
+rules_version = '2';
+
+// MedBills (Nuskha PMS) Firestore security rules.
+//
+// All store data lives under stores/{storeId}/… (each document also carries
+// its storeId, Rule 8). A signed-in user may only touch the store recorded on
+// their users/{uid} profile, and only while that profile is active. Roles:
+//   owner        — everything below, plus store settings and the audit log
+//   pharmacist   — stock in, medicine master edits, sale cancellation
+//   counterStaff — billing only (can decrement stock, never add it)
+//
+// Sales, purchases, credit-ledger entries and audit entries are append-only:
+// nothing is ever deleted (Rule 10). A sale can only move completed →
+// cancelled, with a reason.
+//
+// Every query the app makes is either unfiltered within one store
+// subcollection or ordered by a single field, so no composite indexes are
+// required.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profilePath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function me() {
+      return get(profilePath()).data;
+    }
+
+    function isMember(storeId) {
+      return signedIn()
+          && exists(profilePath())
+          && me().active == true
+          && me().storeId == storeId;
+    }
+
+    function hasRole(roles) {
+      return me().role in roles;
+    }
+
+    function isManager() {
+      return hasRole(['owner', 'pharmacist']);
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function onlyChanged(keys) {
+      return changedKeys().hasOnly(keys);
+    }
+
+    function unchanged(keys) {
+      return !changedKeys().hasAny(keys);
+    }
+
+    function storeIdMatches(storeId) {
+      return request.resource.data.storeId == storeId;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      // Staff accounts are provisioned by an admin (scripts/provision_firebase.dart).
+      allow write: if false;
+    }
+
+    match /stores/{storeId} {
+      allow read: if isMember(storeId);
+      allow update: if isMember(storeId) && hasRole(['owner']) && unchanged(['storeId']);
+      allow create, delete: if false;
+
+      // Invoice serial per financial year. Only ever advances by exactly one,
+      // so two counters can never be issued the same invoice number.
+      match /counters/{fy} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && storeIdMatches(storeId)
+            && request.resource.data.next == 2;
+        allow update: if isMember(storeId)
+            && onlyChanged(['next'])
+            && request.resource.data.next == resource.data.next + 1;
+        allow delete: if false;
+      }
+
+      match /medicines/{medicineId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && isManager() && storeIdMatches(storeId);
+        allow update: if isMember(storeId) && isManager() && unchanged(['storeId', 'id']);
+        allow delete: if false;
+      }
+
+      match /batches/{batchId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && isManager() && storeIdMatches(storeId)
+            && request.resource.data.quantity is int
+            && request.resource.data.quantity >= 0;
+        allow update: if isMember(storeId)
+            && unchanged(['storeId', 'medicineId', 'id', 'batchNumber'])
+            && request.resource.data.quantity is int
+            && request.resource.data.quantity >= 0
+            && (isManager()
+                || (onlyChanged(['quantity'])
+                    && request.resource.data.quantity < resource.data.quantity));
+        allow delete: if false;
+      }
+
+      match /sales/{saleId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && storeIdMatches(storeId)
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.status == 'completed';
+        allow update: if isMember(storeId)
+            && isManager()
+            && resource.data.status == 'completed'
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.cancellationReason is string
+            && request.resource.data.cancellationReason.size() > 0
+            && onlyChanged(['status', 'cancellationReason', 'cancelledAt', 'cancelledBy', 'cancelledByName']);
+        allow delete: if false;
+      }
+
+      match /purchases/{purchaseId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && isManager() && storeIdMatches(storeId)
+            && request.resource.data.createdBy == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      match /customers/{customerId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && storeIdMatches(storeId);
+        allow update: if isMember(storeId) && unchanged(['storeId', 'id']);
+        allow delete: if false;
+
+        match /ledger/{entryId} {
+          allow read: if isMember(storeId);
+          allow create: if isMember(storeId) && storeIdMatches(storeId)
+              && request.resource.data.createdBy == request.auth.uid;
+          allow update, delete: if false;
+        }
+      }
+
+      match /auditLog/{entryId} {
+        allow read: if isMember(storeId) && hasRole(['owner']);
+        allow create: if isMember(storeId) && storeIdMatches(storeId)
+            && request.resource.data.uid == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+  }
+}

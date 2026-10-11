@@ -1,20 +1,24 @@
-import 'package:decimal/decimal.dart';
+import 'date_value.dart';
 
-/// A batch of a [Medicine] product. Rule 12: all money stored as integer
-/// paise, never a double. Rule 4: [mrpPaise] is GST-inclusive.
+/// One received lot of a medicine. Rule 12: money is integer paise.
+/// [mrpPaise] and [purchasePricePaise] are per pack, exactly as printed on
+/// the strip/box and the supplier invoice; [quantity] is in base units
+/// (Rule 2), converted with the medicine's unitsPerPack.
 class Batch {
   final String id;
+  final String storeId;
   final String medicineId;
   final String batchNumber;
   final DateTime expiryDate;
   final int purchasePricePaise;
-  final int mrpPaise;
-  final int quantity; // Rule 2: base units (e.g. tablets)
+  final int mrpPaise; // Rule 4: GST-inclusive
+  final int quantity;
   final bool isBlocked;
   final DateTime createdAt;
 
   const Batch({
     required this.id,
+    required this.storeId,
     required this.medicineId,
     required this.batchNumber,
     required this.expiryDate,
@@ -25,67 +29,68 @@ class Batch {
     required this.createdAt,
   });
 
-  Decimal get purchasePriceRupees =>
-      (Decimal.fromInt(purchasePricePaise) / Decimal.fromInt(100)).toDecimal();
+  /// Pharmacy expiry is month-precision: a strip marked 03/2027 is usable
+  /// through 31 March 2027, so [expiryDate] holds the last day of that month.
+  bool isExpiredAt(DateTime now) => !now.isBefore(expiryDate.add(const Duration(days: 1)));
 
-  Decimal get mrpRupees =>
-      (Decimal.fromInt(mrpPaise) / Decimal.fromInt(100)).toDecimal();
+  bool get isExpired => isExpiredAt(DateTime.now());
 
-  bool get isExpired => DateTime.now().isAfter(expiryDate);
+  int daysToExpiry(DateTime now) => expiryDate.difference(now).inDays;
 
-  Batch copyWith({
-    String? id,
-    String? medicineId,
-    String? batchNumber,
-    DateTime? expiryDate,
-    int? purchasePricePaise,
-    int? mrpPaise,
-    int? quantity,
-    bool? isBlocked,
-    DateTime? createdAt,
-  }) {
+  bool isSellableAt(DateTime now) => !isBlocked && quantity > 0 && !isExpiredAt(now);
+
+  Batch copyWith({int? quantity, bool? isBlocked}) {
     return Batch(
-      id: id ?? this.id,
-      medicineId: medicineId ?? this.medicineId,
-      batchNumber: batchNumber ?? this.batchNumber,
-      expiryDate: expiryDate ?? this.expiryDate,
-      purchasePricePaise: purchasePricePaise ?? this.purchasePricePaise,
-      mrpPaise: mrpPaise ?? this.mrpPaise,
+      id: id,
+      storeId: storeId,
+      medicineId: medicineId,
+      batchNumber: batchNumber,
+      expiryDate: expiryDate,
+      purchasePricePaise: purchasePricePaise,
+      mrpPaise: mrpPaise,
       quantity: quantity ?? this.quantity,
       isBlocked: isBlocked ?? this.isBlocked,
-      createdAt: createdAt ?? this.createdAt,
+      createdAt: createdAt,
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'storeId': storeId,
       'medicineId': medicineId,
       'batchNumber': batchNumber,
-      'expiryDate': expiryDate.toIso8601String(),
+      'expiryDate': expiryDate,
       'purchasePricePaise': purchasePricePaise,
       'mrpPaise': mrpPaise,
       'quantity': quantity,
       'isBlocked': isBlocked,
-      'createdAt': createdAt.toIso8601String(),
+      'createdAt': createdAt,
     };
   }
 
   factory Batch.fromMap(Map<String, dynamic> map) {
     return Batch(
-      id: map['id'] as String,
-      medicineId: map['medicineId'] as String,
-      batchNumber: map['batchNumber'] as String? ?? '',
-      expiryDate: map['expiryDate'] != null
-          ? DateTime.parse(map['expiryDate'] as String)
-          : DateTime.now(),
-      purchasePricePaise: (map['purchasePricePaise'] as num?)?.toInt() ?? 0,
-      mrpPaise: (map['mrpPaise'] as num?)?.toInt() ?? 0,
-      quantity: (map['quantity'] as num?)?.toInt() ?? 0,
-      isBlocked: map['isBlocked'] as bool? ?? false,
-      createdAt: map['createdAt'] != null
-          ? DateTime.parse(map['createdAt'] as String)
-          : DateTime.now(),
+      id: readString(map['id']),
+      storeId: readString(map['storeId'], 'store_primary'),
+      medicineId: readString(map['medicineId']),
+      batchNumber: readString(map['batchNumber']),
+      expiryDate: readDate(map['expiryDate']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      purchasePricePaise: readInt(map['purchasePricePaise']),
+      mrpPaise: readInt(map['mrpPaise']),
+      quantity: readInt(map['quantity']),
+      isBlocked: map['isBlocked'] == true,
+      createdAt: readDate(map['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
+
+  /// Deterministic document id so receiving the same batch twice tops up
+  /// one record instead of creating a duplicate.
+  static String idFor(String medicineId, String batchNumber) =>
+      '${medicineId}__${normaliseBatchNumber(batchNumber).replaceAll(RegExp(r'[^A-Z0-9-]'), '_')}';
+
+  static String normaliseBatchNumber(String raw) => raw.trim().toUpperCase();
+
+  /// Last calendar day of [month]/[year] — how printed expiry is read.
+  static DateTime endOfMonth(int year, int month) => DateTime(year, month + 1, 0);
 }

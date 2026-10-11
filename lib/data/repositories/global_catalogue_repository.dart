@@ -1,35 +1,18 @@
 import '../../domain/models/medicine.dart';
 import '../../domain/models/schedule_type.dart';
+import '../../domain/services/pack_units.dart';
 
-/// One row of the in-memory seed catalogue, along with the batch-shaped
-/// pricing fields a cart line needs. The full 253,973-row Indian medicine
-/// dataset ships as a bundled read-only SQLite file in production; this
-/// seed covers ~95 authentic, fast-moving Indian medicines — including the
-/// top formulations distributed through the Indore/Bhopal pharmaceutical
-/// hubs that supply Madhya Pradesh retail pharmacies — for demo and
-/// offline-first search.
-class CartItemSeed {
-  final String medicineId;
-  final String name;
-  final String batchNumber;
-  final String expiry;
-  final int mrpPaise;
-  final double gstRate;
+/// A master-catalogue medicine plus the reference MRP (per pack) it is
+/// typically sold at, used to pre-fill the stock-in form. The real price
+/// always comes from the batch received.
+class CatalogueEntry {
+  final Medicine medicine;
+  final int referenceMrpPaise;
 
-  const CartItemSeed({
-    required this.medicineId,
-    required this.name,
-    required this.batchNumber,
-    required this.expiry,
-    required this.mrpPaise,
-    required this.gstRate,
-  });
+  const CatalogueEntry({required this.medicine, required this.referenceMrpPaise});
 }
 
 class GlobalCatalogueRepository {
-  /// Declared total size of the real dataset this seed stands in for.
-  static const int totalCatalogueCount = 253973;
-
   /// HSN chapter-30 headings (Rule 4): 300410 for penicillin-type
   /// antibiotic combinations, 300420 for other antibiotic/antifungal
   /// formulations, 300490 for general formulations. 6-digit headings are
@@ -313,41 +296,41 @@ class GlobalCatalogueRepository {
     _referenceMrpPaise[id] = referenceMrpPaise;
     return Medicine(
       id: id,
-      storeId: 'store_primary',
+      storeId: '',
+      catalogueId: id,
       name: name,
       genericName: generic,
       manufacturer: manufacturer,
       type: type,
       packSizeLabel: packSizeLabel,
+      unitsPerPack: PackUnits.fromLabel(packSizeLabel),
       hsnCode: hsnCode,
       gstRate: gstRate,
       scheduleType: scheduleType,
-      minStock: 20,
-      shelfLocation: 'A1',
-      updatedAt: DateTime.now(),
+      minStock: 2 * PackUnits.fromLabel(packSizeLabel),
+      shelfLocation: '',
+      updatedAt: DateTime(2026, 9, 1),
     );
   }
 
-  List<Medicine> searchCatalogue(String query) {
-    if (query.trim().isEmpty) return _seedMedicines;
-    final lower = query.toLowerCase();
-    return _seedMedicines
-        .where((m) =>
-            m.name.toLowerCase().contains(lower) ||
-            m.genericName.toLowerCase().contains(lower))
-        .toList();
+  int get length => _seedMedicines.length;
+
+  int referenceMrpFor(String catalogueId) {
+    // _referenceMrpPaise is filled while _seedMedicines is first built.
+    if (_seedMedicines.isEmpty) return 0;
+    return _referenceMrpPaise[catalogueId] ?? 0;
   }
 
-  List<CartItemSeed> searchCartItems(String query) {
-    return searchCatalogue(query).map((m) {
-      return CartItemSeed(
-        medicineId: m.id,
-        name: m.name,
-        batchNumber: 'B${m.id.substring(4)}',
-        expiry: '12/2027',
-        mrpPaise: _referenceMrpPaise[m.id] ?? 5000,
-        gstRate: m.gstRate,
-      );
-    }).toList();
+  /// Case-insensitive match on brand or generic name. Empty query → all.
+  List<CatalogueEntry> search(String query) {
+    final q = query.trim().toLowerCase();
+    return _seedMedicines
+        .where((m) =>
+            q.isEmpty ||
+            m.name.toLowerCase().contains(q) ||
+            m.genericName.toLowerCase().contains(q) ||
+            m.manufacturer.toLowerCase().contains(q))
+        .map((m) => CatalogueEntry(medicine: m, referenceMrpPaise: referenceMrpFor(m.id)))
+        .toList();
   }
 }

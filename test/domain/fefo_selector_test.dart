@@ -1,50 +1,42 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:nuskha_pms/domain/models/batch.dart';
 import 'package:nuskha_pms/domain/services/fefo_selector.dart';
 
-Batch _batch(String id, DateTime expiry, int qty, {bool blocked = false}) {
-  return Batch(
-    id: id,
-    medicineId: 'med_001',
-    batchNumber: id,
-    expiryDate: expiry,
-    purchasePricePaise: 1000,
-    mrpPaise: 1500,
-    quantity: qty,
-    isBlocked: blocked,
-    createdAt: DateTime.now(),
-  );
-}
+import '../support/fixtures.dart';
 
 void main() {
+  final now = DateTime(2026, 10, 11);
+
   group('FefoSelector', () {
-    test('allocates from nearest-expiry batch first', () {
+    test('allocates from the nearest-expiry batch first and spills over', () {
       final batches = [
-        _batch('B1', DateTime.now().add(const Duration(days: 300)), 10),
-        _batch('B2', DateTime.now().add(const Duration(days: 30)), 5),
+        batch('m', 'LATE', expiry: DateTime(2027, 12, 31), quantity: 10),
+        batch('m', 'SOON', expiry: DateTime(2026, 12, 31), quantity: 5),
       ];
-      final allocations = FefoSelector.selectBatches(batches: batches, requestedQty: 5);
-      expect(allocations.length, 1);
-      expect(allocations.first.batch.id, 'B2');
+      final allocations = FefoSelector.selectBatches(batches: batches, requestedQty: 8, now: now);
+      expect(allocations.map((a) => (a.batch.batchNumber, a.quantity)), [('SOON', 5), ('LATE', 3)]);
     });
 
-    test('skips expired and blocked batches', () {
+    test('skips expired, blocked and reserved stock', () {
       final batches = [
-        _batch('EXPIRED', DateTime.now().subtract(const Duration(days: 5)), 10),
-        _batch('BLOCKED', DateTime.now().add(const Duration(days: 30)), 10, blocked: true),
-        _batch('GOOD', DateTime.now().add(const Duration(days: 60)), 8),
+        batch('m', 'EXPIRED', expiry: DateTime(2026, 9, 30), quantity: 10),
+        batch('m', 'BLOCKED', expiry: DateTime(2026, 11, 30), quantity: 10, blocked: true),
+        batch('m', 'GOOD', expiry: DateTime(2027, 1, 31), quantity: 8),
       ];
-      final allocations = FefoSelector.selectBatches(batches: batches, requestedQty: 5);
-      expect(allocations.length, 1);
-      expect(allocations.first.batch.id, 'GOOD');
-    });
-
-    test('throws InsufficientStockException when not enough stock', () {
-      final batches = [_batch('B1', DateTime.now().add(const Duration(days: 30)), 3)];
+      final reserved = {batches[2].id: 3};
+      final allocations =
+          FefoSelector.selectBatches(batches: batches, requestedQty: 5, reserved: reserved, now: now);
+      expect(allocations.single.batch.batchNumber, 'GOOD');
+      expect(allocations.single.quantity, 5);
       expect(
-        () => FefoSelector.selectBatches(batches: batches, requestedQty: 10),
-        throwsA(isA<InsufficientStockException>()),
+        () => FefoSelector.selectBatches(batches: batches, requestedQty: 6, reserved: reserved, now: now),
+        throwsA(isA<InsufficientStockException>().having((e) => e.available, 'available', 5)),
       );
+    });
+
+    test('rejects zero or negative requests', () {
+      final batches = [batch('m', 'B', expiry: DateTime(2027, 1, 31), quantity: 8)];
+      expect(() => FefoSelector.selectBatches(batches: batches, requestedQty: 0, now: now),
+          throwsA(isA<InsufficientStockException>()));
     });
   });
 }

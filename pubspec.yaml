@@ -1,7 +1,7 @@
 name: nuskha_pms
-description: MedBills (Nuskha PMS) — Pharmacy Management System
+description: MedBills (Nuskha PMS) — pharmacy billing, stock and compliance for Indian medical stores.
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ^3.11.4
@@ -11,18 +11,14 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^2.6.1
-  go_router: ^17.3.0
-  decimal: ^3.2.5
   intl: ^0.20.3
-  sqflite: ^2.4.2+1
-  sqflite_common_ffi: ^2.4.0+3
   firebase_core: ^4.12.1
   cloud_firestore: ^6.7.1
   firebase_auth: ^6.5.6
   url_launcher: ^6.3.2
   pdf: ^3.11.1
   printing: ^5.13.4
-  uuid: ^4.5.1
+  web: ^1.1.0
 
 dev_dependencies:
   flutter_test:
@@ -34,6 +30,10 @@ flutter:
   uses-material-design: true
   assets:
     - assets/logo.png
+    - assets/fonts/WorkSans-Regular.ttf
+    - assets/fonts/WorkSans-Bold.ttf
+    - assets/fonts/NotoSansDevanagari-Regular.ttf
+    - assets/fonts/NotoSansDevanagari-Bold.ttf
   fonts:
     - family: WorkSans
       fonts:
@@ -49,4 +49,9 @@ flutter:
         - asset: assets/fonts/Outfit-SemiBold.ttf
           weight: 600
         - asset: assets/fonts/Outfit-Bold.ttf
+          weight: 700
+    - family: NotoSansDevanagari
+      fonts:
+        - asset: assets/fonts/NotoSansDevanagari-Regular.ttf
+        - asset: assets/fonts/NotoSansDevanagari-Bold.ttf
           weight: 700
