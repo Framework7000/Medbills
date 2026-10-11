@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Resumes MedBills (Nuskha PMS) on a fresh local clone — generates the
-# gitignored platform runner folders, fetches dependencies for both the
-# app and the scripts/ CLI tools, and prints what to do next.
+# Prepares a fresh clone of MedBills (Nuskha PMS): fetches dependencies for
+# the app and the scripts/ tools, installs CocoaPods on a Mac, and prints
+# how to run each platform.
 #
 # Usage (after cloning and checking out claude/medbills-repo-t8ueeh):
 #   ./setup.sh
@@ -18,38 +18,32 @@ echo "== Flutter version =="
 flutter --version
 echo
 
-echo "== Generating platform runner folders (android/ios/windows/macos/web) =="
-flutter create --platforms=windows,web,android,macos .
-echo
-
 echo "== Fetching app dependencies =="
 flutter pub get
 echo
 
-echo "== Fetching scripts/ (Firestore seed CLI) dependencies =="
+echo "== Fetching scripts/ (Firebase setup tools) dependencies =="
 (cd scripts && dart pub get)
 echo
 
-cat <<'EOF'
+if [[ "$(uname)" == "Darwin" ]] && command -v pod >/dev/null 2>&1; then
+  echo "== Installing CocoaPods for iPhone and Mac =="
+  (cd ios && pod install)
+  (cd macos && pod install)
+  echo
+fi
+
+cat <<'DONE'
 Setup complete.
 
-Next steps:
+  Windows:  flutter run -d windows        (needs Visual Studio 2022, C++ desktop)
+  Mac:      flutter run -d macos          (needs Xcode; pick a signing Team once)
+  iPhone:   flutter run -d <your iPhone>  (Xcode -> ios/Runner.xcworkspace -> Signing)
+  Android:  flutter run -d <your phone>
+  Demo web: flutter run -d chrome         (sample data only)
 
-  Run the app:
-    flutter run -d chrome     # or -d windows / -d macos / an Android device
+  Checks:   flutter analyze && flutter test
 
-  Verify everything still passes:
-    flutter analyze
-    flutter test
-
-  This repo's lib/firebase_options.dart already points at a real,
-  seeded Firebase project (medbills-176df). Desktop/mobile builds connect
-  to it automatically. Web builds are opt-in — see the "Firebase project"
-  section in README.md for why — enable with:
-    flutter run -d chrome --dart-define=ENABLE_FIREBASE_WEB=true
-
-  To re-seed or reset that project's Firestore data (or point at your own
-  project instead), see scripts/README.md — you'll need a service account
-  key from Firebase Console → Project Settings → Service Accounts →
-  Generate new private key. Never commit that key file to this repo.
-EOF
+The apps connect to the store's Firebase project (lib/firebase_options.dart).
+Sign in with a staff account. See README.md for adding staff.
+DONE

@@ -216,11 +216,10 @@ class _ReceiveStockFormState extends ConsumerState<_ReceiveStockForm> {
         Text('Or enter one line by hand', style: text.titleMedium),
         const SizedBox(height: Space.s),
         const SizedBox(height: Space.s),
-        pair(
-          TextFormField(controller: _supplier, decoration: const InputDecoration(labelText: 'Supplier / distributor'),
-              textCapitalization: TextCapitalization.words),
-          TextFormField(controller: _supplierInvoice, decoration: const InputDecoration(labelText: 'Supplier bill no.')),
-        ),
+        TextFormField(controller: _supplier, decoration: const InputDecoration(labelText: 'Supplier / distributor'),
+            textCapitalization: TextCapitalization.words),
+        const SizedBox(height: Space.m),
+        TextFormField(controller: _supplierInvoice, decoration: const InputDecoration(labelText: 'Supplier bill no.')),
         const SizedBox(height: Space.l),
         Row(children: [
           Expanded(child: Text('Medicine', style: text.titleMedium)),
