@@ -5,19 +5,35 @@ build/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/pubspec.lock
 *.iml
 .idea/
 .vscode/
 *.g.dart
 *.freezed.dart
 
-# Platform build outputs
-android/
-ios/
+# Platform build outputs (the platform folders themselves are committed)
 linux/
-macos/
-windows/
-web/
+**/Pods/
+**/.symlinks/
+**/Flutter/ephemeral/
+**/Flutter/Generated.xcconfig
+**/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.*
+macos/Flutter/GeneratedPluginRegistrant.swift
+android/local.properties
+android/.gradle/
+android/app/debug/
+android/app/profile/
+android/app/release/
+windows/flutter/ephemeral/
+**/xcuserdata/
+
+# Credentials — never commit service-account keys or signing material
+*firebase-adminsdk*.json
+service-account*.json
+*.p12
+*.jks
+*.keystore
+key.properties
 
 .DS_Store
