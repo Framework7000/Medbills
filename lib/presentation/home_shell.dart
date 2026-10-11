@@ -8,6 +8,7 @@ import 'customers/customers_screen.dart';
 import 'inventory/inventory_screen.dart';
 import 'purchases/purchases_screen.dart';
 import 'reports/reports_screen.dart';
+import 'scan/scan_screen.dart';
 import 'sales/bill_history_screen.dart';
 import 'settings/settings_screen.dart';
 import 'theme.dart';
@@ -22,6 +23,7 @@ class _Destination {
 
 List<_Destination> _destinationsFor(UserRole role) => [
       _Destination('Billing', Icons.point_of_sale_outlined, Icons.point_of_sale, () => const BillingScreen()),
+      _Destination('Scan', Icons.qr_code_scanner_outlined, Icons.qr_code_scanner, () => const ScanScreen()),
       _Destination('Stock', Icons.inventory_2_outlined, Icons.inventory_2, () => const InventoryScreen()),
       _Destination('Bills', Icons.receipt_long_outlined, Icons.receipt_long, () => const BillHistoryScreen()),
       _Destination('Udhaar', Icons.account_balance_wallet_outlined, Icons.account_balance_wallet,

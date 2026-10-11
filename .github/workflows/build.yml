@@ -25,6 +25,7 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - run: cd scripts && dart pub get
       - run: flutter analyze
       - run: flutter test
 
@@ -75,6 +76,9 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      # No Apple team on GitHub: build the downloadable app without the
+      # sandbox/keychain-group entitlements that require one.
+      - run: cp macos/Runner/Unsigned.entitlements macos/Runner/Release.entitlements
       - run: flutter build macos --release
       - name: Zip
         run: cd build/macos/Build/Products/Release && ditto -c -k --keepParent MedBills.app "$GITHUB_WORKSPACE/MedBills-macOS-unsigned.zip"

@@ -1,14 +1,18 @@
 import 'package:flutter/foundation.dart';
 
-/// What this device can do. Camera scanning and on-device text reading run
-/// on iPhone/iPad and Android. Windows and Mac counters use a USB/Bluetooth
-/// barcode scanner (it types into the search box) and receive scans and
-/// bill photos from a phone.
+/// What this device can do. Every device can scan: a USB/Bluetooth scanner
+/// or typed code works everywhere; the camera works on iPhone, Android, Mac
+/// and in a browser; reading printed text (packs, bills) runs on iPhone and
+/// Android. A Windows/Mac counter can also receive scans sent from a phone.
 class DeviceFeatures {
   static bool get _mobile =>
       !kIsWeb && (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.android);
 
-  static bool get cameraScanning => _mobile;
+  /// iPhone/iPad or Android phone.
+  static bool get isPhone => _mobile;
+
+  static bool get cameraScanning =>
+      kIsWeb || _mobile || defaultTargetPlatform == TargetPlatform.macOS;
   static bool get textReading => _mobile;
 
   /// A short label for scans sent from this device.

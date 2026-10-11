@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../domain/models/batch.dart';
 import '../../domain/models/customer_credit.dart';
 import '../../domain/models/sale_invoice.dart';
 import '../../domain/models/scan_link.dart';
@@ -17,8 +16,8 @@ import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
 import '../../state/providers.dart';
 import '../customers/customer_dialogs.dart';
-import '../purchases/medicine_picker.dart';
 import '../scan/barcode_scanner_screen.dart';
+import '../scan/scan_billing.dart';
 import '../scan/scan_flows.dart';
 import '../sales/invoice_view.dart';
 import '../theme.dart';
@@ -43,7 +42,6 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
   StreamSubscription<List<ScanEvent>>? _scanSub;
   Timer? _heartbeat;
   final _handledScans = <String>{};
-  ScanStation? _sendTo; // on a phone: the counter scans go to (null = this phone)
 
   @override
   void dispose() {
@@ -55,133 +53,27 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
 
   // ------------------------------------------------------------- scanning
 
-  /// Adds one pack of a scanned medicine — the scanned batch when it is on
-  /// the shelf, otherwise nearest expiry first.
-  ScanFeedback _addScanned(StockSummary stock, {String? batchNumber}) {
-    final m = stock.medicine;
-    if (!m.scheduleType.isSellable) {
-      return ScanFeedback('${m.name} is unclassified — set its schedule in Stock first.', ok: false);
-    }
-    final now = DateTime.now();
-    final cart = ref.read(cartProvider);
-    final batches = batchesFor(stock, batchNumber);
-    final free = batches
-        .where((b) => b.isSellableAt(now))
-        .fold<int>(0, (sum, b) => sum + b.quantity - (cart.unitsByBatch[b.id] ?? 0));
-    if (free <= 0) {
-      return ScanFeedback(
-          stock.isOutOfStock ? '${m.name} is out of stock.' : 'All ${m.name} in stock is already on this bill.',
-          ok: false);
-    }
-    final units = free < m.unitsPerPack ? free : m.unitsPerPack;
-    try {
-      ref.read(cartProvider.notifier).addMedicine(m, batches, units, now: now);
-    } catch (e) {
-      return ScanFeedback(friendlyError(e), ok: false);
-    }
-    final wanted = batchNumber == null || batchNumber.isEmpty ? null : Batch.normaliseBatchNumber(batchNumber);
-    final usedWanted = wanted != null && batches.length == 1 && batches.first.batchNumber == wanted;
-    return ScanFeedback('Added ${PackUnits.describe(units, m.unitsPerPack)} · ${m.name}'
-        '${wanted != null && !usedWanted ? ' (batch $wanted not in stock — billed nearest expiry)' : ''}');
-  }
+  ScanFeedback _addScanned(StockSummary stock, {String? batchNumber}) =>
+      addScannedToBill(ref, stock, batchNumber: batchNumber);
 
-  Future<ScanFeedback> _handleCode(String raw) async {
-    final index = ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
-    final hit = resolveBarcode(raw, index);
-    if (hit.expiry != null && hit.expiry!.isBefore(DateTime.now())) {
-      return ScanFeedback('This pack is EXPIRED (${DateFormat('MM/yy').format(hit.expiry!)}). Do not sell it.', ok: false);
-    }
-    final stock = hit.stock;
-    if (stock == null) {
-      final manager = ref.read(currentUserProvider)?.role.canManageStock ?? false;
-      return ScanFeedback(
-        'Barcode $raw isn\'t linked to a medicine yet.',
-        ok: false,
-        actionLabel: manager ? 'Link' : null,
-        onAction: manager ? () => _linkBarcode(raw) : null,
+  Future<ScanFeedback> _handleCode(String raw, {bool toCounter = true}) =>
+      handleScannedCode(context, ref, raw, toCounter: toCounter);
+
+  Future<void> _openScanner() => openBillScanner(context, ref);
+
+  Future<void> _readPack() => readPackIntoBill(context, ref);
+
+  /// Every way to scan from this device in one place (F3).
+  Future<void> _openScanHub() => showDialog<void>(
+        context: context,
+        builder: (_) => _ScanHub(
+          onCode: (raw) => _handleCode(raw, toCounter: false),
+          onCamera: DeviceFeatures.cameraScanning ? _openScanner : null,
+          onReadPack: DeviceFeatures.textReading ? _readPack : null,
+          stationName: () => _station?.name,
+          onToggleStation: DeviceFeatures.isPhone ? null : _toggleStation,
+        ),
       );
-    }
-    final target = _sendTo;
-    if (target != null) {
-      final repo = ref.read(repositoryProvider)!;
-      await repo.sendScan(ScanEvent(
-        id: repo.newId(),
-        storeId: repo.storeId,
-        stationId: target.id,
-        rawBarcode: raw,
-        medicineId: stock.medicine.id,
-        batchNumber: hit.batchNumber,
-        deviceLabel: DeviceFeatures.label,
-        createdBy: repo.actor.uid,
-        createdByName: repo.actor.name,
-        scannedAt: DateTime.now(),
-      ));
-      return ScanFeedback('Sent ${stock.medicine.name} to ${target.name}');
-    }
-    return _addScanned(stock, batchNumber: hit.batchNumber);
-  }
-
-  /// Saves an unknown barcode on the medicine it belongs to, so the next
-  /// scan of that pack — on any device — finds it.
-  Future<void> _linkBarcode(String raw) async {
-    final picked = await pickMedicine(context);
-    if (picked == null || !mounted) return;
-    try {
-      await ref.read(repositoryProvider)!.saveMedicine(picked.medicine.copyWith(barcode: raw));
-      if (mounted) showMessage(context, 'Barcode linked to ${picked.medicine.name}. Scan it again to add it.');
-    } catch (e) {
-      if (mounted) showMessage(context, friendlyError(e), error: true);
-    }
-  }
-
-  Future<void> _openScanner() => openContinuousScanner(
-        context,
-        title: 'Scan medicines',
-        onScan: _handleCode,
-        header: Consumer(builder: (context, ref, _) {
-          final now = DateTime.now();
-          final stations = (ref.watch(stationsProvider).valueOrNull ?? const <ScanStation>[])
-              .where((s) => s.isAvailableAt(now))
-              .toList();
-          if (stations.isEmpty) return const SizedBox.shrink();
-          return StatefulBuilder(
-            builder: (context, setLocal) => DropdownButtonFormField<String>(
-              initialValue: stations.any((s) => s.id == _sendTo?.id) ? _sendTo!.id : '',
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Add scanned items to'),
-              items: [
-                const DropdownMenuItem(value: '', child: Text('The bill on this phone')),
-                for (final s in stations) DropdownMenuItem(value: s.id, child: Text('${s.name} (counter)')),
-              ],
-              onChanged: (id) => setLocal(() => _sendTo = stations.where((s) => s.id == id).firstOrNull),
-            ),
-          );
-        }),
-      );
-
-  Future<void> _readPack() async {
-    final index = ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
-    final scan = await scanPackPhoto(context, medicines: index.values.map((s) => s.medicine).toList());
-    if (scan == null || !mounted) return;
-    final info = scan.info;
-    if (info.hasExpiry && Batch.endOfMonth(info.expiryYear!, info.expiryMonth!).isBefore(DateTime.now())) {
-      showMessage(context, 'That pack is expired — not added.', error: true);
-      return;
-    }
-    final stock = index[scan.medicine.id];
-    if (stock == null) return;
-    final feedback = _addScanned(stock, batchNumber: info.batchNumber);
-    if (info.mrpPaise != null && feedback.ok) {
-      final billed = batchesFor(stock, info.batchNumber).firstOrNull;
-      if (billed != null && billed.mrpPaise != info.mrpPaise) {
-        showMessage(context,
-            '${feedback.message}. Note: pack MRP ${formatRupees(info.mrpPaise!)} differs from stock record ${formatRupees(billed.mrpPaise)}.',
-            error: true);
-        return;
-      }
-    }
-    showMessage(context, feedback.message, error: !feedback.ok);
-  }
 
   // ------------------------------------------------- this device as a counter
 
@@ -317,10 +209,8 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
     if (_query.isEmpty) return;
     // USB/Bluetooth scanners type the code and press Enter: add one pack.
     if (Gs1Parser.parse(_query).gtin != null) {
-      final sendTo = _sendTo;
-      _sendTo = null; // a counter's own scanner always bills here
-      final feedback = await _handleCode(_query);
-      _sendTo = sendTo;
+      // A counter's own scanner always bills here.
+      final feedback = await _handleCode(_query, toCounter: false);
       if (!mounted) return;
       _search.clear();
       setState(() {});
@@ -448,6 +338,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.f2): () => _searchFocus.requestFocus(),
+        const SingleActivator(LogicalKeyboardKey.f3): _openScanHub,
         const SingleActivator(LogicalKeyboardKey.f9): _checkout,
         const SingleActivator(LogicalKeyboardKey.escape): () => setState(_search.clear),
       },
@@ -470,16 +361,20 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
                     ),
                   ),
             actions: [
-              if (DeviceFeatures.cameraScanning) ...[
+              if (DeviceFeatures.isPhone) ...[
                 IconButton(tooltip: 'Scan barcodes', icon: const Icon(Icons.qr_code_scanner), onPressed: _openScanner),
                 IconButton(tooltip: 'Read a pack (photo)', icon: const Icon(Icons.document_scanner_outlined), onPressed: _readPack),
-              ],
-              if (!DeviceFeatures.cameraScanning || wide)
-                IconButton(
-                  tooltip: _station == null ? 'Receive scans from a phone' : 'Stop receiving phone scans',
-                  icon: Icon(_station == null ? Icons.phonelink_outlined : Icons.phonelink_off_outlined),
-                  onPressed: _toggleStation,
-                ),
+              ] else
+                wide
+                    ? Padding(
+                        padding: const EdgeInsets.only(right: Space.s),
+                        child: FilledButton.tonalIcon(
+                          onPressed: _openScanHub,
+                          icon: const Icon(Icons.qr_code_scanner),
+                          label: const Text('Scan (F3)'),
+                        ),
+                      )
+                    : IconButton(tooltip: 'Scan (F3)', icon: const Icon(Icons.qr_code_scanner), onPressed: _openScanHub),
               if (!ref.watch(cartProvider.select((c) => c.isEmpty)))
                 TextButton.icon(
                   onPressed: () async {
@@ -610,10 +505,12 @@ class _CartList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final cart = ref.watch(cartProvider);
     if (cart.isEmpty) {
-      return const EmptyState(
+      return EmptyState(
         icon: Icons.shopping_basket_outlined,
         title: 'New bill',
-        message: 'Search a medicine above, or scan its barcode, to add it.',
+        message: DeviceFeatures.isPhone
+            ? 'Search a medicine above, or tap the scanner icon to scan its barcode.'
+            : 'Search a medicine above, or press F3 / "Scan" — USB scanner, camera or phone.',
       );
     }
     final text = Theme.of(context).textTheme;
@@ -889,5 +786,131 @@ class _CreditCustomerPicker extends ConsumerWidget {
         label: const Text('Choose customer'),
       ),
     ]);
+  }
+}
+
+/// The scanner window: a USB scanner (or typing) works on every device;
+/// camera, pack reading and the phone link appear where the device has them.
+class _ScanHub extends StatefulWidget {
+  const _ScanHub({
+    required this.onCode,
+    required this.onCamera,
+    required this.onReadPack,
+    required this.stationName,
+    required this.onToggleStation,
+  });
+
+  final Future<ScanFeedback> Function(String raw) onCode;
+  final Future<void> Function()? onCamera;
+  final Future<void> Function()? onReadPack;
+  final String? Function() stationName;
+  final Future<void> Function()? onToggleStation;
+
+  @override
+  State<_ScanHub> createState() => _ScanHubState();
+}
+
+class _ScanHubState extends State<_ScanHub> {
+  final _code = TextEditingController();
+  final _focus = FocusNode();
+  ScanFeedback? _feedback;
+  int _added = 0;
+
+  @override
+  void dispose() {
+    _code.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final raw = _code.text.trim();
+    if (raw.isEmpty) return;
+    final feedback = await widget.onCode(raw);
+    if (!mounted) return;
+    setState(() {
+      _feedback = feedback;
+      if (feedback.ok) _added++;
+      _code.clear();
+    });
+    _focus.requestFocus();
+  }
+
+  Future<void> _then(Future<void> Function() action) async {
+    Navigator.of(context).pop();
+    await action();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final feedback = _feedback;
+    final station = widget.stationName();
+    return AlertDialog(
+      title: const Text('Scan medicine'),
+      content: DialogBody(
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          TextField(
+            controller: _code,
+            focusNode: _focus,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Barcode',
+              hintText: 'Scan with the USB scanner, or type and press Enter',
+              prefixIcon: Icon(Icons.barcode_reader),
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+          const SizedBox(height: Space.s),
+          if (feedback != null)
+            Row(children: [
+              Icon(feedback.ok ? Icons.check_circle : Icons.error_outline,
+                  color: feedback.ok ? AppColors.accent : AppColors.danger, size: 20),
+              const SizedBox(width: Space.s),
+              Expanded(child: Text(feedback.message, style: text.bodyMedium)),
+              if (feedback.onAction != null)
+                TextButton(onPressed: feedback.onAction, child: Text(feedback.actionLabel ?? 'Fix')),
+            ])
+          else
+            Text('Each scan adds one pack to the bill. Keep scanning — this window stays open.',
+                style: text.bodySmall?.copyWith(color: AppColors.muted)),
+          const Divider(height: Space.xl),
+          if (widget.onCamera != null)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Scan with camera'),
+              subtitle: const Text('Hold the pack\'s barcode or QR code to the camera'),
+              onTap: () => _then(widget.onCamera!),
+            ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            enabled: widget.onReadPack != null,
+            leading: const Icon(Icons.document_scanner_outlined),
+            title: const Text('Read pack (photo)'),
+            subtitle: Text(widget.onReadPack != null
+                ? 'Finds the exact medicine, batch, expiry and MRP from the printed text'
+                : 'Works in the iPhone / Android app'),
+            onTap: widget.onReadPack == null ? null : () => _then(widget.onReadPack!),
+          ),
+          if (widget.onToggleStation != null)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(station == null ? Icons.phonelink_outlined : Icons.phonelink_off_outlined),
+              title: Text(station == null ? 'Use a phone as the scanner' : 'Stop receiving phone scans'),
+              subtitle: Text(station == null
+                  ? 'Scans made on the iPhone app appear on this bill'
+                  : 'Receiving as "$station"'),
+              onTap: () => _then(widget.onToggleStation!),
+            ),
+        ]),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(_added == 0 ? 'Close' : 'Done · $_added added'),
+        ),
+      ],
+    );
   }
 }
