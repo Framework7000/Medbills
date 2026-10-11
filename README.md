@@ -32,7 +32,7 @@ You'll land in exactly the state this session left off in:
   project (`medbills-176df`) — desktop/mobile builds connect to it
   automatically, no extra setup.
 - Firestore already has the 42-medicine Madhya Pradesh catalogue in it
-  (written by `scripts/seed_mp_medicines.dart` from this session).
+  (written by `scripts/seed_store_medicines.dart` from this session).
 - All 46 tests and `flutter analyze` pass as of the last commit.
 
 ### Run
@@ -89,7 +89,7 @@ lib/data/**          The only layer touching Firestore/SQLite; repositories
 `lib/firebase_options.dart` carries real credentials for a connected
 Firebase project (`medbills-176df`), and its Firestore has been seeded
 with the 42-medicine Madhya Pradesh catalogue via
-`scripts/seed_mp_medicines.dart` (see `scripts/README.md`) — verified by
+`scripts/seed_store_medicines.dart` (see `scripts/README.md`) — verified by
 reading the documents back, independent of the app. Inventory Master
 (`lib/main.dart`) reads live from `medicinesStreamProvider` /
 `firestoreStockForMedicineProvider` (`lib/state/medicine_providers.dart`)
@@ -136,7 +136,7 @@ against your project's own service account (see `scripts/README.md`).
   but Purchases and Billing checkout still only write to the local
   `inventoryBatchesProvider` ledger, not `BatchRepository` — so stock
   changes made in the app don't yet round-trip to Firestore. Only
-  `scripts/seed_mp_medicines.dart` writes real batch data currently.
+  `scripts/seed_store_medicines.dart` writes real batch data currently.
 - Invoice numbering is currently client-side; production needs a Cloud
   Function (Rule 6).
 - Firebase Auth is not yet wired to real login UI — roles are switched via

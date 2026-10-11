@@ -89,16 +89,16 @@ class GlobalCatalogueRepository {
     // Gastro — mostly OTC-sold in India, Ranitidine restricted (Schedule H)
     // ---------------------------------------------------------------
     _m('med_007', 'Pan-D', 'Pantoprazole 40mg + Domperidone 30mg', 'Alkem Laboratories',
-        'Gastro', _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 15', 19900),
+        'Gastro', _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 15', 19900),
     _m('med_071', 'Pan 40 Tablet', 'Pantoprazole 40mg', 'Alkem Laboratories', 'Gastro',
         _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 15', 15500),
     _m('med_072', 'Pantop-D Capsule', 'Pantoprazole 40mg + Domperidone 30mg',
         'Aristo Pharmaceuticals', 'Gastro', _hsnGeneral, 12.0, ScheduleType.scheduleH,
         'Strip of 15', 19000),
     _m('med_008', 'Pantoprazole 40mg', 'Pantoprazole', 'Sun Pharma', 'Gastro',
-        _hsnGeneral, 12.0, ScheduleType.otc, '10 Tablets Strip', 9000),
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 9000),
     _m('med_018', 'Omez 20 Capsule', 'Omeprazole 20mg', 'Dr. Reddy\'s Laboratories', 'Gastro',
-        _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 20', 6500),
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 20', 6500),
     _m('med_074', 'Rablet 20 Tablet', 'Rabeprazole 20mg', 'Lupin Ltd', 'Gastro',
         _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 15', 11500),
     _m('med_019', 'Ranitidine 150mg', 'Ranitidine', 'GSK Pharmaceuticals', 'Gastro',
@@ -114,7 +114,7 @@ class GlobalCatalogueRepository {
     _m('med_061', 'Eno Fruit Salt', 'Sodium Bicarbonate + Citric Acid', 'GSK Pharmaceuticals',
         'Gastro', _hsnGeneral, 12.0, ScheduleType.otc, '100g Bottle', 7500),
     _m('med_062', 'Cyclopam', 'Dicyclomine + Paracetamol', 'Sun Pharma', 'Gastro',
-        _hsnGeneral, 12.0, ScheduleType.otc, '10 Tablets Strip', 3000),
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 3000),
 
     // ---------------------------------------------------------------
     // Diabetes — Schedule H
@@ -163,11 +163,11 @@ class GlobalCatalogueRepository {
     _m('med_014', 'Cetirizine 10mg', 'Cetirizine Hydrochloride', 'Cipla', 'Allergy',
         _hsnGeneral, 12.0, ScheduleType.otc, '10 Tablets Strip', 1800),
     _m('med_015', 'Montair-LC Tablet', 'Montelukast 10mg + Levocetirizine 5mg', 'Cipla',
-        'Allergy', _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 10', 18500),
+        'Allergy', _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 18500),
     _m('med_076', 'Telekast-L Tablet', 'Montelukast 10mg + Levocetirizine 5mg', 'Lupin Ltd',
-        'Allergy', _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 10', 17900),
+        'Allergy', _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 17900),
     _m('med_055', 'Montek LC', 'Montelukast + Levocetirizine', 'Sun Pharma', 'Allergy',
-        _hsnGeneral, 12.0, ScheduleType.otc, '10 Tablets Strip', 16500),
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 16500),
     _m('med_025', 'Levocetirizine 5mg', 'Levocetirizine Dihydrochloride', 'Torrent Pharmaceuticals',
         'Allergy', _hsnGeneral, 12.0, ScheduleType.otc, '10 Tablets Strip', 3200),
     _m('med_077', 'Allegra 120mg Tablet', 'Fexofenadine 120mg', 'Sanofi India', 'Allergy',
@@ -221,7 +221,7 @@ class GlobalCatalogueRepository {
     _m('med_034', 'Candid-B Cream', 'Clotrimazole + Beclomethasone', 'Glenmark Pharmaceuticals',
         'Dermatology', _hsnGeneral, 12.0, ScheduleType.scheduleH, '20g Tube', 13500),
     _m('med_035', 'Soframycin Skin Cream', 'Framycetin Sulphate', 'Sanofi India', 'Dermatology',
-        _hsnGeneral, 12.0, ScheduleType.otc, '30g Tube', 4800),
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '30g Tube', 4800),
 
     // ---------------------------------------------------------------
     // Antifungal — Schedule H, HSN 300420 per CDSCO antimicrobial grouping
@@ -259,7 +259,7 @@ class GlobalCatalogueRepository {
     // Women's Health
     // ---------------------------------------------------------------
     _m('med_043', 'Meftal Spas', 'Mefenamic Acid + Dicyclomine', 'Blue Cross Laboratories',
-        'Women\'s Health', _hsnGeneral, 12.0, ScheduleType.otc, '10 Tablets Strip', 4800),
+        'Women\'s Health', _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 4800),
     _m('med_044', 'I-Pill', 'Levonorgestrel', 'Mankind Pharma', 'Women\'s Health',
         _hsnGeneral, 12.0, ScheduleType.otc, '1 Tablet', 10000),
 
@@ -269,14 +269,14 @@ class GlobalCatalogueRepository {
     _m('med_046', 'Escitalopram 10mg', 'Escitalopram Oxalate', 'Sun Pharma', 'Neuro/Psychiatry',
         _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 9500),
     _m('med_047', 'Clonazepam 0.5mg', 'Clonazepam', 'Mankind Pharma', 'Neuro/Psychiatry',
-        _hsnGeneral, 12.0, ScheduleType.scheduleX, '10 Tablets Strip', 2800),
+        _hsnGeneral, 12.0, ScheduleType.scheduleH1, '10 Tablets Strip', 2800),
     _m('med_048', 'Gabapentin 300mg', 'Gabapentin', 'Sun Pharma', 'Neuro/Psychiatry',
         _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Capsules Strip', 11000),
     _m('med_092', 'Alprazolam 0.5mg (Restyl)', 'Alprazolam 0.5mg', 'Cipla', 'Neuro/Psychiatry',
         _hsnGeneral, 12.0, ScheduleType.scheduleH1, 'Strip of 15', 4200),
     _m('med_093', 'Zolpidem 10mg (Zolfresh)', 'Zolpidem Tartrate 10mg', 'Abbott India',
         'Neuro/Psychiatry', _hsnGeneral, 12.0, ScheduleType.scheduleH1, 'Strip of 10', 9800),
-    _m('med_094', 'Tramadol 50mg (Ultracet)', 'Tramadol 37.5mg + Paracetamol 325mg',
+    _m('med_094', 'Ultracet Tablet', 'Tramadol 37.5mg + Paracetamol 325mg',
         'Janssen (Johnson & Johnson)', 'Neuro/Psychiatry', _hsnGeneral, 12.0,
         ScheduleType.scheduleH1, 'Strip of 15', 21500),
   ];
