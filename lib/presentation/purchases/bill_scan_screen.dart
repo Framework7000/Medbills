@@ -66,7 +66,14 @@ Future<void> captureSupplierBill(BuildContext context, WidgetRef ref) async {
   if (source == null || !context.mounted) return;
   final file = await ImagePicker().pickImage(source: source, maxWidth: 2400, imageQuality: 95);
   if (file == null || !context.mounted) return;
+  await receiveBillPhoto(context, ref, file);
+}
 
+/// Reads [file] as a supplier bill, saves it and opens it for review.
+/// Shared by [captureSupplierBill] and Smart Scan — Smart Scan has usually
+/// already read the photo once (to decide it's a bill, not a pack), so it
+/// passes [page] to avoid reading it twice. Returns whether the bill was saved.
+Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file, {OcrPage? page}) async {
   final repo = ref.read(repositoryProvider)!;
   final ownGstin = ref.read(storeProvider).valueOrNull?.gstin ?? '';
   final medicines = _knownMedicines(ref);
@@ -89,25 +96,26 @@ Future<void> captureSupplierBill(BuildContext context, WidgetRef ref) async {
   try {
     final bytes = await file.readAsBytes();
     final jpeg = await compressPhoto(bytes);
-    final OcrPage? page = DeviceFeatures.textReading ? await readTextFromPhoto(file.path) : null;
-    final draft = page == null || page.isEmpty
+    final ocrPage = page ?? (DeviceFeatures.textReading ? await readTextFromPhoto(file.path) : null);
+    final draft = ocrPage == null || ocrPage.isEmpty
         ? const BillDraft()
-        : SupplierBillParser.parse(page, medicines, ownGstin: ownGstin);
-    scan = await repo.createBillScan(draft: draft, ocrText: page?.text ?? '', jpeg: jpeg);
+        : SupplierBillParser.parse(ocrPage, medicines, ownGstin: ownGstin);
+    scan = await repo.createBillScan(draft: draft, ocrText: ocrPage?.text ?? '', jpeg: jpeg);
   } catch (e) {
     failure = e;
   }
-  if (!context.mounted) return;
+  if (!context.mounted) return false;
   Navigator.of(context).pop(); // progress
   if (scan == null) {
     showMessage(context, friendlyError(failure ?? 'Could not save the bill.'), error: true);
-    return;
+    return false;
   }
   if (!DeviceFeatures.textReading) {
     showMessage(context, 'Bill photo saved. Text reading runs on the phone app — enter the lines here, '
         'or photograph the bill with the phone and it will appear on every device.');
   }
   await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BillReviewScreen(scanId: scan!.id)));
+  return true;
 }
 
 /// Recently photographed bills, newest first.

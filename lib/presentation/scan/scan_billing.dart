@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../domain/models/batch.dart';
 import '../../domain/models/scan_link.dart';
 import '../../domain/services/billing_calculator.dart';
+import '../../domain/services/capture_classifier.dart';
 import '../../domain/services/pack_units.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
+import '../../platform/text_reader.dart';
 import '../../state/providers.dart';
+import '../purchases/bill_scan_screen.dart' show receiveBillPhoto;
 import '../purchases/medicine_picker.dart';
 import '../widgets/common.dart';
 import 'barcode_scanner_screen.dart';
@@ -107,6 +111,68 @@ Future<void> openBillScanner(BuildContext context, WidgetRef ref) => openContinu
       onScan: (raw) => handleScannedCode(context, ref, raw),
       header: const ScanTargetPicker(),
     );
+
+/// Smart Scan: one camera, one button. A barcode goes straight to the bill
+/// (or the chosen counter) like [openBillScanner]; the capture button — for
+/// anything without a barcode — photographs it and figures out on its own
+/// whether it's a single pack (added to the bill) or a supplier bill (saved
+/// for review), so nobody has to pick which kind of scan this is first.
+Future<void> openSmartScanner(BuildContext context, WidgetRef ref) => openContinuousScanner(
+      context,
+      title: 'Smart Scan',
+      onScan: (raw) => handleScannedCode(context, ref, raw),
+      header: const ScanTargetPicker(),
+      onCapturePhoto: DeviceFeatures.textReading ? () => smartPhotoCapture(context, ref) : null,
+    );
+
+/// Photographs whatever is in front of the camera, reads it on the device,
+/// and routes it: several parsed lines → a supplier bill, saved for review;
+/// otherwise → a single pack, matched and added to the bill. Returns null
+/// when the user cancelled (nothing to show), otherwise the result to
+/// animate on screen.
+Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref) async {
+  if (!DeviceFeatures.textReading) {
+    return const ScanFeedback('Reading text works on the iPhone or Android app.', ok: false);
+  }
+  final photo = await ImagePicker().pickImage(source: ImageSource.camera, maxWidth: 2400, imageQuality: 93);
+  if (photo == null || !context.mounted) return null;
+  final page = await readTextFromPhoto(photo.path);
+  if (!context.mounted) return null;
+  if (page == null || page.isEmpty) {
+    return const ScanFeedback('No printed text found. Hold it flat, in good light, and try again.', ok: false);
+  }
+  final index = ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
+  final medicines = index.values.map((s) => s.medicine).toList();
+  final ownGstin = ref.read(storeProvider).valueOrNull?.gstin ?? '';
+
+  if (classifyCapture(page, medicines, ownGstin: ownGstin) == CaptureKind.supplierBill) {
+    final saved = await receiveBillPhoto(context, ref, photo, page: page);
+    // Receiving a bill opens its own review screen — close Smart Scan behind
+    // it too, rather than leaving the camera open underneath.
+    if (saved && context.mounted) Navigator.of(context).pop();
+    return null;
+  }
+
+  final scan = await scanPackPhoto(context, medicines: medicines, photo: photo, page: page);
+  if (scan == null || !context.mounted) return null;
+  final info = scan.info;
+  if (info.hasExpiry && Batch.endOfMonth(info.expiryYear!, info.expiryMonth!).isBefore(DateTime.now())) {
+    return const ScanFeedback('That pack is expired — not added.', ok: false);
+  }
+  final stock = index[scan.medicine.id];
+  if (stock == null) return const ScanFeedback('Medicine not found in this store\'s stock.', ok: false);
+  final feedback = addScannedToBill(ref, stock, batchNumber: info.batchNumber);
+  if (info.mrpPaise != null && feedback.ok) {
+    final billed = batchesFor(stock, info.batchNumber).firstOrNull;
+    if (billed != null && billed.mrpPaise != info.mrpPaise) {
+      return ScanFeedback(
+        '${feedback.message}. Note: pack MRP ${formatRupees(info.mrpPaise!)} differs from stock record ${formatRupees(billed.mrpPaise)}.',
+        ok: false,
+      );
+    }
+  }
+  return feedback;
+}
 
 class ScanTargetPicker extends ConsumerWidget {
   const ScanTargetPicker({super.key});

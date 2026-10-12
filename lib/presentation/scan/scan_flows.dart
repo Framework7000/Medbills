@@ -7,6 +7,7 @@ import '../../domain/models/medicine.dart';
 import '../../domain/services/billing_calculator.dart';
 import '../../domain/services/gs1_parser.dart';
 import '../../domain/services/medicine_matcher.dart';
+import '../../domain/services/ocr_text.dart';
 import '../../domain/services/pack_label_parser.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
@@ -71,24 +72,32 @@ class PackScan {
 /// Photographs a pack, reads its printed text on the device, and identifies
 /// the exact medicine (brand + strength) among [medicines], plus the batch,
 /// expiry and MRP printed on it. The user confirms before anything is used.
-Future<PackScan?> scanPackPhoto(BuildContext context, {required List<Medicine> medicines}) async {
+///
+/// Smart Scan already has the photo and its OCR by the time it knows this is
+/// a pack (not a supplier bill) — pass [photo]/[page] to skip re-reading it.
+Future<PackScan?> scanPackPhoto(
+  BuildContext context, {
+  required List<Medicine> medicines,
+  XFile? photo,
+  OcrPage? page,
+}) async {
   if (!DeviceFeatures.textReading) {
     showMessage(context, 'Reading packs works on the iPhone or Android app.');
     return null;
   }
-  final photo = await ImagePicker().pickImage(source: ImageSource.camera, maxWidth: 2200, imageQuality: 92);
-  if (photo == null || !context.mounted) return null;
-  final page = await readTextFromPhoto(photo.path);
+  final file = photo ?? await ImagePicker().pickImage(source: ImageSource.camera, maxWidth: 2200, imageQuality: 92);
+  if (file == null || !context.mounted) return null;
+  final ocrPage = page ?? await readTextFromPhoto(file.path);
   if (!context.mounted) return null;
-  if (page == null || page.isEmpty) {
+  if (ocrPage == null || ocrPage.isEmpty) {
     showMessage(context, 'No printed text found. Hold the pack flat, in good light, and try again.', error: true);
     return null;
   }
-  final info = PackLabelParser.parse(page.text);
-  final match = MedicineMatcher.match(page.text, medicines);
+  final info = PackLabelParser.parse(ocrPage.text);
+  final match = MedicineMatcher.match(ocrPage.text, medicines);
   return showDialog<PackScan>(
     context: context,
-    builder: (_) => _PackScanDialog(text: page.text, info: info, match: match, medicines: medicines),
+    builder: (_) => _PackScanDialog(text: ocrPage.text, info: info, match: match, medicines: medicines),
   );
 }
 

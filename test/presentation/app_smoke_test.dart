@@ -82,7 +82,7 @@ void main() {
       await _pumpApp(tester, entry.value);
       expect(find.text('Billing'), findsWidgets);
 
-      for (final section in ['Scan', 'Stock', 'Bills', 'Udhaar', 'Purchases', 'Reports', 'Settings']) {
+      for (final section in ['Scan', 'Stock', 'Bills', 'Purchases', 'Reports', 'Settings']) {
         await _open(tester, section);
         expect(tester.takeException(), isNull, reason: section);
         if (Navigator.of(tester.element(find.byType(Scaffold).last)).canPop()) await _back(tester);

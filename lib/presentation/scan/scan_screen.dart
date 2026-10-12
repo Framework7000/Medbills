@@ -2,16 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/services/billing_calculator.dart';
-import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
 import '../../state/providers.dart';
-import '../inventory/inventory_screen.dart';
-import '../purchases/bill_scan_screen.dart';
 import '../theme.dart';
-import '../widgets/common.dart';
 import 'barcode_scanner_screen.dart';
 import 'scan_billing.dart';
-import 'scan_flows.dart';
 
 /// Everything that starts with a scan, in one place. On the phone this is a
 /// main tab: the phone is the store's scanner — into its own bill or a
@@ -42,27 +37,6 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       _feedback = feedback;
       _code.clear();
     });
-  }
-
-  /// Scan (camera) or type a code and open that medicine's stock and batches.
-  Future<void> _checkMedicine() async {
-    final raw = DeviceFeatures.cameraScanning ? await scanSingleBarcode(context, title: 'Check a medicine') : _code.text.trim();
-    if (!mounted || raw == null) return;
-    if (raw.isEmpty) {
-      showMessage(context, 'Scan or type the barcode in the box above first.');
-      return;
-    }
-    final index = ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
-    final hit = resolveBarcode(raw, index);
-    if (hit.stock == null) {
-      final manager = ref.read(currentUserProvider)?.role.canManageStock ?? false;
-      showMessage(context, 'Barcode $raw isn\'t linked to a medicine yet.${manager ? ' Use "Scan into bill" to link it.' : ''}',
-          error: true);
-      return;
-    }
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => MedicineDetailScreen(medicineId: hit.stock!.medicine.id)),
-    );
   }
 
   @override
@@ -117,11 +91,12 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       if (DeviceFeatures.cameraScanning)
         action(
           icon: Icons.qr_code_scanner,
-          title: 'Scan into bill',
+          title: 'Smart Scan',
           subtitle: target == null
-              ? 'Point the camera at barcodes one after another — each adds a pack.'
+              ? 'Point at a barcode to add it — or tap the camera button for a pack label or a supplier bill. '
+                  'It figures out which.'
               : 'Scans go to ${target.name}\'s bill.',
-          onTap: () => openBillScanner(context, ref),
+          onTap: () => openSmartScanner(context, ref),
           extra: const ScanTargetPicker(),
         ),
       if (!phone)
@@ -147,28 +122,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             ],
           ]),
         ),
-      action(
-        icon: Icons.document_scanner_outlined,
-        title: 'Read a medicine pack',
-        subtitle: DeviceFeatures.textReading
-            ? 'Photo of the strip → exact medicine, batch, expiry and MRP. Warns if expired.'
-            : 'Works in the iPhone / Android app.',
-        onTap: DeviceFeatures.textReading ? () => readPackIntoBill(context, ref) : null,
-      ),
-      action(
-        icon: Icons.receipt_long_outlined,
-        title: 'Scan supplier bill',
-        subtitle: DeviceFeatures.textReading
-            ? 'Photo of the bill → supplier, GSTIN, bill no. and every line, ready to receive into stock.'
-            : 'Attach a bill photo (text is read in the phone app); it shows on every device.',
-        onTap: () => captureSupplierBill(context, ref),
-      ),
-      action(
-        icon: Icons.manage_search,
-        title: 'Check a medicine',
-        subtitle: 'Scan a pack to see its stock, batches and expiry.',
-        onTap: _checkMedicine,
-      ),
+      if (!DeviceFeatures.cameraScanning)
+        action(
+          icon: Icons.document_scanner_outlined,
+          title: 'Read a medicine pack',
+          subtitle: 'Works in the iPhone / Android app.',
+          onTap: null,
+        ),
       if (!phone)
         Text(
           'To use an iPhone as this counter\'s scanner: Billing → Scan (F3) → "Use a phone as the scanner".',

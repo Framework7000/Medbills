@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/models/app_user.dart';
 import '../state/providers.dart';
 import 'billing/billing_screen.dart';
-import 'customers/customers_screen.dart';
 import 'inventory/inventory_screen.dart';
 import 'purchases/purchases_screen.dart';
 import 'reports/reports_screen.dart';
@@ -26,8 +25,6 @@ List<_Destination> _destinationsFor(UserRole role) => [
       _Destination('Scan', Icons.qr_code_scanner_outlined, Icons.qr_code_scanner, () => const ScanScreen()),
       _Destination('Stock', Icons.inventory_2_outlined, Icons.inventory_2, () => const InventoryScreen()),
       _Destination('Bills', Icons.receipt_long_outlined, Icons.receipt_long, () => const BillHistoryScreen()),
-      _Destination('Udhaar', Icons.account_balance_wallet_outlined, Icons.account_balance_wallet,
-          () => const CustomersScreen()),
       if (role.canManageStock)
         _Destination('Purchases', Icons.local_shipping_outlined, Icons.local_shipping, () => const PurchasesScreen()),
       if (role.canViewReports)
@@ -54,6 +51,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final destinations = _destinationsFor(user.role);
     if (_index >= destinations.length) _index = 0;
 
+    // Low/out-of-stock count, shown as a badge on Stock so it needs no
+    // separate "check your notifications" step.
+    final stock = ref.watch(stockIndexProvider).valueOrNull;
+    final stockAlerts = stock == null ? 0 : stock.values.where((s) => s.isLowStock || s.isOutOfStock).length;
+    Widget icon(_Destination d, IconData icon) =>
+        d.label == 'Stock' && stockAlerts > 0 ? Badge(label: Text('$stockAlerts'), child: Icon(icon)) : Icon(icon);
+
     if (context.usesRail) {
       return Scaffold(
         body: SafeArea(
@@ -72,8 +76,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
                     destinations: [
                       for (final d in destinations)
                         NavigationRailDestination(
-                          icon: Icon(d.icon),
-                          selectedIcon: Icon(d.selectedIcon),
+                          icon: icon(d, d.icon),
+                          selectedIcon: icon(d, d.selectedIcon),
                           label: Text(d.label),
                         ),
                     ],
@@ -109,7 +113,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: [
           for (final d in primary)
-            NavigationDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selectedIcon), label: d.label),
+            NavigationDestination(icon: icon(d, d.icon), selectedIcon: icon(d, d.selectedIcon), label: d.label),
           const NavigationDestination(icon: Icon(Icons.menu), selectedIcon: Icon(Icons.menu_open), label: 'More'),
         ],
       ),

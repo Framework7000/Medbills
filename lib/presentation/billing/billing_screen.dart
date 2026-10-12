@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../domain/models/customer_credit.dart';
 import '../../domain/models/sale_invoice.dart';
 import '../../domain/models/scan_link.dart';
 import '../../domain/services/billing_calculator.dart';
@@ -15,7 +14,6 @@ import '../../domain/services/schedule_h1_compliance.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
 import '../../state/providers.dart';
-import '../customers/customer_dialogs.dart';
 import '../scan/barcode_scanner_screen.dart';
 import '../scan/scan_billing.dart';
 import '../scan/scan_flows.dart';
@@ -42,12 +40,17 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
   StreamSubscription<List<ScanEvent>>? _scanSub;
   Timer? _heartbeat;
   final _handledScans = <String>{};
+  final _incoming = <_IncomingScan>[];
+  final _incomingTimers = <String, Timer>{};
 
   @override
   void dispose() {
     _search.dispose();
     _searchFocus.dispose();
     _stopStation(notify: false);
+    for (final t in _incomingTimers.values) {
+      t.cancel();
+    }
     super.dispose();
   }
 
@@ -59,17 +62,14 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
   Future<ScanFeedback> _handleCode(String raw, {bool toCounter = true}) =>
       handleScannedCode(context, ref, raw, toCounter: toCounter);
 
-  Future<void> _openScanner() => openBillScanner(context, ref);
-
-  Future<void> _readPack() => readPackIntoBill(context, ref);
+  Future<void> _openSmartScan() => openSmartScanner(context, ref);
 
   /// Every way to scan from this device in one place (F3).
   Future<void> _openScanHub() => showDialog<void>(
         context: context,
         builder: (_) => _ScanHub(
           onCode: (raw) => _handleCode(raw, toCounter: false),
-          onCamera: DeviceFeatures.cameraScanning ? _openScanner : null,
-          onReadPack: DeviceFeatures.textReading ? _readPack : null,
+          onSmartScan: DeviceFeatures.cameraScanning ? _openSmartScan : null,
           stationName: () => _station?.name,
           onToggleStation: DeviceFeatures.isPhone ? null : _toggleStation,
         ),
@@ -161,6 +161,9 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
     ).whenComplete(controller.dispose);
   }
 
+  /// Firestore pushes a new scan event the instant the phone sends one —
+  /// this fires within a moment of that, for every scan, every time. Each
+  /// one gets its own animated card (several in a row stack, not drop).
   void _onRemoteScans(List<ScanEvent> events) {
     if (!mounted) return;
     final now = DateTime.now();
@@ -177,7 +180,14 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
           ? ScanFeedback('Unknown barcode ${e.rawBarcode}', ok: false)
           : _addScanned(stock, batchNumber: e.batchNumber);
       if (repo != null) unawaited(repo.markScanDone(e.id).catchError((_) {}));
-      showMessage(context, '${e.createdByName} (${e.deviceLabel}): ${feedback.message}', error: !feedback.ok);
+      unawaited(feedback.ok ? HapticFeedback.mediumImpact() : HapticFeedback.heavyImpact());
+      final toast = _IncomingScan(id: e.id, from: '${e.createdByName} (${e.deviceLabel})', message: feedback.message, ok: feedback.ok);
+      setState(() => _incoming.insert(0, toast));
+      _incomingTimers[e.id] = Timer(const Duration(seconds: 3), () {
+        if (!mounted) return;
+        setState(() => _incoming.removeWhere((t) => t.id == e.id));
+        _incomingTimers.remove(e.id);
+      });
     }
   }
 
@@ -263,10 +273,6 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
     if (ScheduleCompliance.hasUnclassified(cart.schedules)) {
       showMessage(context, 'This bill has an unclassified medicine. Set its schedule in Stock before selling.',
           error: true);
-      return;
-    }
-    if (cart.paymentMode == PaymentMode.credit && cart.creditCustomer == null) {
-      showMessage(context, 'Choose the customer account for this udhaar sale.', error: true);
       return;
     }
     PrescriptionRecord? prescription;
@@ -361,10 +367,9 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
                     ),
                   ),
             actions: [
-              if (DeviceFeatures.isPhone) ...[
-                IconButton(tooltip: 'Scan barcodes', icon: const Icon(Icons.qr_code_scanner), onPressed: _openScanner),
-                IconButton(tooltip: 'Read a pack (photo)', icon: const Icon(Icons.document_scanner_outlined), onPressed: _readPack),
-              ] else
+              if (DeviceFeatures.isPhone)
+                IconButton(tooltip: 'Smart Scan', icon: const Icon(Icons.qr_code_scanner), onPressed: _openSmartScan)
+              else
                 wide
                     ? Padding(
                         padding: const EdgeInsets.only(right: Space.s),
@@ -392,7 +397,21 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
                 ),
             ],
           ),
-          body: body,
+          body: Stack(children: [
+            body,
+            if (_incoming.isNotEmpty)
+              Positioned(
+                top: Space.m,
+                right: Space.m,
+                left: wide ? null : Space.m,
+                child: IgnorePointer(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [for (final t in _incoming) _IncomingScanCard(key: ValueKey(t.id), scan: t)],
+                  ),
+                ),
+              ),
+          ]),
         ),
       ),
     );
@@ -689,10 +708,9 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
     final text = Theme.of(context).textTheme;
     String rate(double r) => r == r.roundToDouble() ? r.toStringAsFixed(0) : r.toStringAsFixed(1);
 
-    // Keep the fields in step when the cart is cleared or a credit customer chosen.
+    // Keep the fields in step when the cart is cleared.
     if (_name.text != cart.customerName) _name.text = cart.customerName;
     if (_phone.text != cart.customerPhone) _phone.text = cart.customerPhone;
-    final credit = cart.paymentMode == PaymentMode.credit;
     final busy = widget.busy || _localBusy;
 
     return ListView(
@@ -700,31 +718,27 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
       children: [
         Text('Customer', style: text.titleMedium),
         const SizedBox(height: Space.s),
-        if (credit)
-          _CreditCustomerPicker(selected: cart.creditCustomer, onChanged: notifier.setCreditCustomer)
-        else ...[
-          TextField(
-            controller: _name,
-            decoration: const InputDecoration(labelText: 'Name (optional)'),
-            textCapitalization: TextCapitalization.words,
-            onChanged: (v) => notifier.setCustomer(name: v),
-          ),
-          const SizedBox(height: Space.s),
-          TextField(
-            controller: _phone,
-            decoration: const InputDecoration(labelText: 'Mobile (for WhatsApp bill)'),
-            keyboardType: TextInputType.phone,
-            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')), LengthLimitingTextInputFormatter(15)],
-            onChanged: (v) => notifier.setCustomer(phone: v),
-          ),
-        ],
+        TextField(
+          controller: _name,
+          decoration: const InputDecoration(labelText: 'Name (optional)'),
+          textCapitalization: TextCapitalization.words,
+          onChanged: (v) => notifier.setCustomer(name: v),
+        ),
+        const SizedBox(height: Space.s),
+        TextField(
+          controller: _phone,
+          decoration: const InputDecoration(labelText: 'Mobile (for WhatsApp bill)'),
+          keyboardType: TextInputType.phone,
+          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')), LengthLimitingTextInputFormatter(15)],
+          onChanged: (v) => notifier.setCustomer(phone: v),
+        ),
         const SizedBox(height: Space.l),
         Text('Payment', style: text.titleMedium),
         const SizedBox(height: Space.s),
         Wrap(spacing: Space.s, runSpacing: Space.s, children: [
-          for (final mode in PaymentMode.values)
+          for (final mode in PaymentMode.values.where((m) => m != PaymentMode.credit))
             ChoiceChip(
-              label: Text(mode == PaymentMode.credit ? 'Udhaar' : mode.label),
+              label: Text(mode == PaymentMode.upi ? 'UPI · Razorpay' : mode.label),
               selected: cart.paymentMode == mode,
               onSelected: (_) => notifier.setPaymentMode(mode),
             ),
@@ -755,54 +769,19 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
   }
 }
 
-class _CreditCustomerPicker extends ConsumerWidget {
-  const _CreditCustomerPicker({required this.selected, required this.onChanged});
-  final CustomerCredit? selected;
-  final ValueChanged<CustomerCredit?> onChanged;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final text = Theme.of(context).textTheme;
-    if (selected != null) {
-      final live = ref.watch(customersProvider).valueOrNull?.where((c) => c.id == selected!.id).firstOrNull ?? selected!;
-      return Card(
-        child: ListTile(
-          title: Text(live.name, overflow: TextOverflow.ellipsis),
-          subtitle: Text('${live.phoneNumber.isEmpty ? 'No phone' : live.phoneNumber} · ${live.outstandingBalancePaise < 0 ? 'advance' : 'owes'} ${formatRupees(live.outstandingBalancePaise.abs())}'
-              '${live.creditLimitPaise > 0 ? ' of ${formatRupees(live.creditLimitPaise)} limit' : ''}'),
-          trailing: IconButton(tooltip: 'Change customer', icon: const Icon(Icons.close), onPressed: () => onChanged(null)),
-        ),
-      );
-    }
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('Udhaar sales go on a customer account.', style: text.bodySmall?.copyWith(color: AppColors.muted)),
-      const SizedBox(height: Space.s),
-      OutlinedButton.icon(
-        onPressed: () async {
-          final customer = await pickCustomer(context);
-          if (customer != null) onChanged(customer);
-        },
-        icon: const Icon(Icons.person_search_outlined),
-        label: const Text('Choose customer'),
-      ),
-    ]);
-  }
-}
 
 /// The scanner window: a USB scanner (or typing) works on every device;
-/// camera, pack reading and the phone link appear where the device has them.
+/// Smart Scan and the phone link appear where the device has them.
 class _ScanHub extends StatefulWidget {
   const _ScanHub({
     required this.onCode,
-    required this.onCamera,
-    required this.onReadPack,
+    required this.onSmartScan,
     required this.stationName,
     required this.onToggleStation,
   });
 
   final Future<ScanFeedback> Function(String raw) onCode;
-  final Future<void> Function()? onCamera;
-  final Future<void> Function()? onReadPack;
+  final Future<void> Function()? onSmartScan;
   final String? Function() stationName;
   final Future<void> Function()? onToggleStation;
 
@@ -875,24 +854,14 @@ class _ScanHubState extends State<_ScanHub> {
             Text('Each scan adds one pack to the bill. Keep scanning — this window stays open.',
                 style: text.bodySmall?.copyWith(color: AppColors.muted)),
           const Divider(height: Space.xl),
-          if (widget.onCamera != null)
+          if (widget.onSmartScan != null)
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('Scan with camera'),
-              subtitle: const Text('Hold the pack\'s barcode or QR code to the camera'),
-              onTap: () => _then(widget.onCamera!),
+              title: const Text('Smart Scan'),
+              subtitle: const Text('Point at a barcode to add it, or tap the camera button for a pack or a bill'),
+              onTap: () => _then(widget.onSmartScan!),
             ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            enabled: widget.onReadPack != null,
-            leading: const Icon(Icons.document_scanner_outlined),
-            title: const Text('Read pack (photo)'),
-            subtitle: Text(widget.onReadPack != null
-                ? 'Finds the exact medicine, batch, expiry and MRP from the printed text'
-                : 'Works in the iPhone / Android app'),
-            onTap: widget.onReadPack == null ? null : () => _then(widget.onReadPack!),
-          ),
           if (widget.onToggleStation != null)
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -911,6 +880,61 @@ class _ScanHubState extends State<_ScanHub> {
           child: Text(_added == 0 ? 'Close' : 'Done · $_added added'),
         ),
       ],
+    );
+  }
+}
+
+/// A scan that just arrived wirelessly from a phone, shown on screen briefly.
+class _IncomingScan {
+  const _IncomingScan({required this.id, required this.from, required this.message, required this.ok});
+  final String id;
+  final String from;
+  final String message;
+  final bool ok;
+}
+
+/// Pops in from the side the instant a phone's scan lands here, and fades
+/// away a few seconds later — so every single scan, however many come in a
+/// row, is seen arriving and being applied, not just logged silently.
+class _IncomingScanCard extends StatelessWidget {
+  const _IncomingScanCard({super.key, required this.scan});
+  final _IncomingScan scan;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.s),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutBack,
+        builder: (context, t, child) => Opacity(
+          opacity: t.clamp(0, 1),
+          child: Transform.translate(offset: Offset((1 - t.clamp(0.0, 1.0)) * 32, 0), child: child),
+        ),
+        child: Card(
+          elevation: 4,
+          color: scan.ok ? AppColors.primaryContainer : AppColors.dangerContainer,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 320),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Space.m, vertical: Space.s),
+              child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(scan.ok ? Icons.phonelink_ring : Icons.error_outline,
+                    color: scan.ok ? AppColors.accent : AppColors.danger, size: 20),
+                const SizedBox(width: Space.s),
+                Flexible(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                    Text(scan.from, style: text.labelSmall?.copyWith(color: AppColors.muted)),
+                    Text(scan.message, style: text.bodyMedium, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ]),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
