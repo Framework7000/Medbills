@@ -12,3 +12,7 @@ PRODUCT_BUNDLE_IDENTIFIER = com.medbills.nuskhaPms
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 com.medbills. All rights reserved.
+
+// Not committed: real signing identity/team for local builds only. CI (and
+// anyone else's Mac) builds ad-hoc without it, same as before.
+#include? "Local.xcconfig"

@@ -27,6 +27,8 @@ android/app/profile/
 android/app/release/
 windows/flutter/ephemeral/
 **/xcuserdata/
+# Per-machine signing identity/team — CI and other machines build ad-hoc without it.
+macos/Runner/Configs/Local.xcconfig
 
 # Credentials — never commit service-account keys or signing material
 *firebase-adminsdk*.json
