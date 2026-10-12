@@ -47,6 +47,20 @@ signed in to the store sees the same bills, stock and udhaar in real time.
   Counter staff (billing only). Enforced by Firestore security rules on the
   server, not just hidden in the app.
 
+## Install (for the shop)
+
+Everything is on one page: **https://github.com/Framework7000/Medbills/releases/tag/latest-build**
+
+| Device | Download | Install |
+| --- | --- | --- |
+| Windows 10/11 laptop | `MedBills-Setup.exe` | Double-click → Install. No admin password needed; desktop icon is added. If Windows says "Windows protected your PC", click **More info → Run anyway** (the installer isn't code-signed yet). |
+| Mac | `MedBills-Mac.dmg` | Open it, drag MedBills to Applications. First launch: right-click MedBills → **Open**. |
+| iPhone (17, XR, 6s or newer) | TestFlight | With a paid Apple Developer account, run the "iPhone → TestFlight" workflow (setup steps at the top of `.github/workflows/ios-testflight.yml`); then each iPhone installs from the TestFlight app over Wi-Fi. Without one: install `MedBills-iOS-unsigned.ipa` with Sideloadly and your Apple ID (cable, re-install every 7 days). |
+| Android | `MedBills-Android.apk` | Open on the phone, allow install. |
+
+No cables are needed once installed: every device talks to the same store
+database over Wi-Fi or mobile data. Sign in with a staff account.
+
 ## Run it on your machines
 
 Install Flutter (https://docs.flutter.dev/get-started/install), then:

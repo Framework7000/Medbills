@@ -75,5 +75,7 @@
 	<string>MedBills uses the camera to scan medicine barcodes, read medicine packs and photograph supplier bills.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>MedBills can read a supplier bill from a photo you choose.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

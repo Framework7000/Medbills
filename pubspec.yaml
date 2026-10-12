@@ -29,6 +29,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   fake_cloud_firestore: ^4.2.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
@@ -59,3 +60,23 @@ flutter:
         - asset: assets/fonts/NotoSansDevanagari-Regular.ttf
         - asset: assets/fonts/NotoSansDevanagari-Bold.ttf
           weight: 700
+
+flutter_launcher_icons:
+  image_path: "assets/icon_square.png"
+  android: true
+  adaptive_icon_background: "#14493D"
+  adaptive_icon_foreground: "assets/icon.png"
+  ios: true
+  remove_alpha_ios: true
+  macos:
+    generate: true
+    image_path: "assets/icon.png"
+  windows:
+    generate: true
+    image_path: "assets/icon.png"
+    icon_size: 256
+  web:
+    generate: true
+    image_path: "assets/icon.png"
+    background_color: "#14493D"
+    theme_color: "#14493D"

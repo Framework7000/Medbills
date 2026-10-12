@@ -1,0 +1,67 @@
+name: iPhone → TestFlight
+
+# Sends the iPhone app to TestFlight, so any iPhone (iPhone 17, XR, …) can
+# install it over the internet from the TestFlight app — no cable, no Mac.
+#
+# Needs a paid Apple Developer account (developer.apple.com, US$99 a year) and
+# these repository secrets (GitHub → Settings → Secrets and variables → Actions):
+#   APPLE_TEAM_ID                10-character Team ID (developer.apple.com → Membership)
+#   APP_STORE_CONNECT_KEY_ID     App Store Connect → Users and Access → Integrations → Keys (role: App Manager)
+#   APP_STORE_CONNECT_ISSUER_ID  shown on the same page
+#   APP_STORE_CONNECT_KEY        the downloaded AuthKey_XXXX.p8 file's full text
+# and, once, an app record in App Store Connect → Apps → + → New App with
+# bundle ID com.medbills.nuskhaPms.
+#
+# Run it from GitHub → Actions → "iPhone → TestFlight" → Run workflow.
+on:
+  workflow_dispatch:
+
+jobs:
+  testflight:
+    runs-on: macos-latest
+    env:
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY }}
+    steps:
+      - name: Check the Apple account details are set
+        run: |
+          missing=""
+          for v in TEAM_ID KEY_ID ISSUER_ID KEY_P8; do [ -z "${!v}" ] && missing="$missing $v"; done
+          if [ -n "$missing" ]; then
+            echo "::error::Add the Apple secrets first (missing:$missing). See the comment at the top of this file."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.4"
+          channel: stable
+          cache: true
+      - name: Build the app
+        run: flutter build ios --release --no-codesign --build-number ${{ github.run_number }}
+      - name: Archive and upload to TestFlight
+        run: |
+          mkdir -p ~/private_keys
+          KEY_PATH=~/private_keys/AuthKey_${KEY_ID}.p8
+          printf '%s' "$KEY_P8" > "$KEY_PATH"
+          AUTH="-allowProvisioningUpdates -authenticationKeyPath $KEY_PATH -authenticationKeyID $KEY_ID -authenticationKeyIssuerID $ISSUER_ID"
+          cd ios
+          xcodebuild -workspace Runner.xcworkspace -scheme Runner -configuration Release \
+            -archivePath "$RUNNER_TEMP/MedBills.xcarchive" -destination 'generic/platform=iOS' \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            $AUTH archive
+          cat > "$RUNNER_TEMP/export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/MedBills.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/export" $AUTH
+          echo "Uploaded. It appears in TestFlight after Apple finishes processing (about 10–30 minutes)."

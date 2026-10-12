@@ -39,13 +39,31 @@ jobs:
           channel: stable
           cache: true
       - run: flutter build windows --release
-      - name: Zip
+      - name: Bundle the Visual C++ runtime next to the app
         shell: pwsh
-        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath MedBills-Windows.zip
+        run: |
+          $dest = "build/windows/x64/runner/Release"
+          foreach ($dll in "msvcp140.dll","msvcp140_1.dll","msvcp140_2.dll","vcruntime140.dll","vcruntime140_1.dll") {
+            $src = Join-Path $env:WINDIR "System32\$dll"
+            if (Test-Path $src) { Copy-Item $src $dest }
+          }
+          Get-ChildItem $dest -Filter *.dll | Select-Object Name
+      - name: Build installer (MedBills-Setup.exe)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $version = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" windows\installer\medbills.iss
+          Copy-Item dist\MedBills-Setup.exe MedBills-Setup.exe
+      - name: Portable zip
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath MedBills-Windows-portable.zip
       - uses: actions/upload-artifact@v4
         with:
           name: MedBills-Windows
-          path: MedBills-Windows.zip
+          path: |
+            MedBills-Setup.exe
+            MedBills-Windows-portable.zip
 
   android:
     runs-on: ubuntu-latest
@@ -80,12 +98,16 @@ jobs:
       # sandbox/keychain-group entitlements that require one.
       - run: cp macos/Runner/Unsigned.entitlements macos/Runner/Release.entitlements
       - run: flutter build macos --release
-      - name: Zip
-        run: cd build/macos/Build/Products/Release && ditto -c -k --keepParent MedBills.app "$GITHUB_WORKSPACE/MedBills-macOS-unsigned.zip"
+      - name: Disk image (drag MedBills to Applications)
+        run: |
+          mkdir -p dmg
+          cp -R build/macos/Build/Products/Release/MedBills.app dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname MedBills -srcfolder dmg -ov -format UDZO MedBills-Mac.dmg
       - uses: actions/upload-artifact@v4
         with:
-          name: MedBills-macOS-unsigned
-          path: MedBills-macOS-unsigned.zip
+          name: MedBills-Mac
+          path: MedBills-Mac.dmg
 
   ios:
     runs-on: macos-latest
@@ -160,6 +182,8 @@ jobs:
             --title "MedBills — latest build" \
             --notes "Built from ${GITHUB_SHA::7} on ${GITHUB_REF_NAME}.
 
-          - **MedBills-Windows.zip** — unzip anywhere and run \`MedBills.exe\`.
-          - **MedBills-Android.apk** — install on an Android phone (allow installs from this source).
-          - **MedBills-macOS-unsigned.zip** / **MedBills-iOS-unsigned.ipa** — must be signed with your Apple ID before they run (see README → Apple signing)."
+          - **MedBills-Setup.exe** — Windows 10/11 installer. Double-click, press Install. (If Windows shows \"Windows protected your PC\", click More info → Run anyway.)
+          - **MedBills-Mac.dmg** — open it and drag MedBills into Applications. First launch: right-click MedBills → Open.
+          - **MedBills-Android.apk** — install on an Android phone.
+          - **MedBills-iOS-unsigned.ipa** — iPhone: install with Sideloadly using your Apple ID, or use TestFlight (see README).
+          - **MedBills-Windows-portable.zip** — the same Windows app without installing (unzip, run MedBills.exe)."
