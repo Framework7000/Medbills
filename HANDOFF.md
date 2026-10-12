@@ -58,7 +58,11 @@ A pharmacy (medical store, Madhya Pradesh) billing + stock app that works
 5. **Rules emulator test (was in progress):** replay every write the app makes
    (FirestorePharmacyRepository on fake_cloud_firestore → dump) against
    `firestore.rules` in the Firestore emulator as owner / pharmacist / counter.
-   Static review found no mismatch; this would prove it.
+   A partial read-through of the rules against the models found no mismatch, but it was
+   NOT a full check, so treat the rules/app agreement as unproven until this runs.
+   Also unproven: sign-in and Firestore from the native apps (only tested with a fake
+   Firestore); the GitHub-built Mac DMG removes the keychain entitlement, so Firebase
+   Auth may fail there with a keychain error — use a Mac build signed with a Team.
 6. **iPhone 17 (brother):** owner buys Apple Developer Program, adds the four
    secrets, runs "iPhone → TestFlight"; brother installs from TestFlight.
 7. Owner tasks: fill store details in Settings (GSTIN, drug licence, address —
