@@ -50,17 +50,15 @@ A pharmacy (medical store, Madhya Pradesh) billing + stock app that works
   before pushing.
 - GitHub Actions `.github/workflows/build.yml` builds on real machines and
   publishes to https://github.com/Framework7000/Medbills/releases/tag/latest-build :
-  `MedBills-Setup.exe` (Inno Setup, per-user, VC++ runtime bundled),
-  `MedBills-Mac.dmg` (ad-hoc signed, no sandbox), `MedBills-Android.apk`,
-  `MedBills-iOS-unsigned.ipa`, portable Windows zip.
-  **Check this is still true before trusting it** — at the time of writing,
-  `releases/tag/latest-build` 404s even though an earlier run's `release` job
-  reported success; the next push's run (after this handover) should confirm
-  whether that was a one-off or whether the `release` job needs a real look
-  (`gh release create ... dist/*` with the glob possibly expanding to nothing,
-  or a permissions issue that doesn't fail the step loudly). Don't assume the
-  download links in the workflow's own release notes work until you've
-  clicked one.
+  `MedBills-Setup.exe` (Inno Setup, per-user, VC++ runtime bundled, confirmed
+  downloadable, 19.6 MB), `MedBills-Mac.dmg` (ad-hoc signed, no sandbox,
+  confirmed downloadable, 40 MB), `MedBills-Android.apk`,
+  `MedBills-iOS-unsigned.ipa` (confirmed downloadable, 32.5 MB), portable
+  Windows zip. The whole pipeline (checks, windows, android, macos, ios,
+  release) is green as of commit `15488fe`/run 10 — this was the run that
+  also validated the macOS CI signing fix above; the release had briefly gone
+  missing (404) after an earlier run and is now confirmed live again with
+  fresh assets.
 - `.github/workflows/ios-testflight.yml`: uploads to TestFlight once these repo
   secrets exist: `APPLE_TEAM_ID`, `APP_STORE_CONNECT_KEY_ID`,
   `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_KEY` (needs a paid Apple
@@ -74,11 +72,7 @@ A pharmacy (medical store, Madhya Pradesh) billing + stock app that works
 
 ## Next steps (in order)
 
-1. **Confirm the `latest-build` release actually has fresh assets** (see the
-   warning above) — open the Releases page, or
-   `curl -I https://github.com/Framework7000/Medbills/releases/download/latest-build/MedBills-Setup.exe`
-   and expect a redirect, not 404.
-2. **Install on the owner's iPhone XR** (cable, on this Mac — Xcode and
+1. **Install on the owner's iPhone XR** (cable, on this Mac — Xcode and
    CocoaPods are already set up): `flutter pub get && cd ios && pod install
    && cd ..`, open `ios/Runner.xcworkspace` → Runner → Signing & Capabilities
    → Team `Z9MZ6L5GMS` is already selected project-wide, then
@@ -94,19 +88,19 @@ A pharmacy (medical store, Madhya Pradesh) billing + stock app that works
    Sign in as owner and test: Scan tab (camera barcode, Read pack, Scan
    supplier bill), Billing, a real stock-in via Purchases, a test sale
    (cancel it after — never delete).
-3. **Live-sync test**: with the Mac app and the iPhone app both signed in,
+2. **Live-sync test**: with the Mac app and the iPhone app both signed in,
    confirm a sale/stock change on one shows up on the other within a couple
    of seconds.
-4. **Phone → counter**: Billing → Scan (F3) → "Use a phone as the scanner"
+3. **Phone → counter**: Billing → Scan (F3) → "Use a phone as the scanner"
    on the Mac/Windows counter; on the iPhone Scan tab choose that counter;
    scan a pack and watch it land on the counter's bill.
-5. **Windows**: download `MedBills-Setup.exe` from the release (once step 1
-   above is confirmed working), install on the brother's laptop, sign in,
-   make sure a sale on the iPhone shows up on Windows live.
-6. **iPhone 17 (brother):** owner buys Apple Developer Program, adds the four
+4. **Windows**: download `MedBills-Setup.exe` from the release (confirmed
+   live, see above), install on the brother's laptop, sign in, make sure a
+   sale on the iPhone shows up on Windows live.
+5. **iPhone 17 (brother):** owner buys Apple Developer Program, adds the four
    secrets, runs "iPhone → TestFlight"; brother installs from TestFlight —
    see "Brother's setup" below for the exact steps to hand him.
-7. Owner tasks: fill store details in Settings (GSTIN, drug licence, address —
+6. Owner tasks: fill store details in Settings (GSTIN, drug licence, address —
    printed on every bill); rotate the Firebase service-account key that was
    shared in chat during an earlier session (delete key `d929e6bea1…` in
    Google Cloud → IAM → Service accounts) if that hasn't been done yet.
