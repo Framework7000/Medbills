@@ -109,6 +109,34 @@ jobs:
           name: MedBills-iOS-unsigned
           path: MedBills-iOS-unsigned.ipa
 
+  web-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      # The demo runs on sample data (no Firebase on web by default).
+      - run: flutter build web --release
+      - name: Self-contained loader and trimmed CanvasKit
+        run: |
+          python3 - <<'PY'
+          p = 'build/web/flutter_bootstrap.js'
+          s = open(p).read()
+          i = s.index('_flutter.loader.load({')
+          s = s[:i] + '_flutter.loader.load({\n  config: {\n    canvasKitBaseUrl: "canvaskit/",\n    canvasKitVariant: "full"\n  }\n});\n'
+          open(p, 'w').write(s)
+          PY
+          cd build/web
+          rm -rf canvaskit/chromium canvaskit/skwasm* canvaskit/wimp* canvaskit/*.symbols canvaskit/webparagraph \
+            canvaskit/experimental_webparagraph assets/NOTICES .last_build_id flutter_service_worker.js flutter.js.map
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-demo
+          path: build/web
+
   release:
     needs: [checks, windows, android, macos, ios]
     runs-on: ubuntu-latest
@@ -118,6 +146,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: MedBills-*
           merge-multiple: true
       - name: Publish latest-build release
         env:
