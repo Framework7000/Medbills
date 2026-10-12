@@ -21,7 +21,12 @@ class SupplierBillParser {
     'PHARMA', 'MEDICAL', 'MEDICOS', 'MEDICINE', 'DISTRIBUTOR', 'AGENC', 'ENTERPRISE', 'TRADER', 'DRUG',
     'HEALTHCARE', 'SURGICAL', 'CHEMIST', 'STOCKIST', 'WHOLESALE', 'ASSOCIATES', 'CORPORATION', 'SALES',
   ];
-  static const _notSupplier = ['INVOICE', 'GSTIN', 'PHONE', 'MOBILE', 'ORIGINAL', 'DUPLICATE', 'CASH MEMO', 'BILL TO'];
+  // "M/S X" on a cash memo names the party being billed (us), not the
+  // seller — and a bare "GST No." label (no number read after it) is worth
+  // less as a fallback name than finding nothing.
+  static const _notSupplier = [
+    'INVOICE', 'GSTIN', 'GST NO', 'PHONE', 'MOBILE', 'ORIGINAL', 'DUPLICATE', 'CASH MEMO', 'BILL TO', 'M/S',
+  ];
 
   static BillDraft parse(OcrPage page, Iterable<Medicine> medicines, {String ownGstin = ''}) {
     final rows = page.rows().map((r) => r.toUpperCase()).toList();
@@ -94,11 +99,11 @@ class SupplierBillParser {
     final medicine = match.best?.medicine;
 
     final before = expiryMatch == null ? clean : clean.substring(0, expiryMatch.start);
-    final after = expiryMatch == null ? clean : clean.substring(expiryMatch.end);
 
     final nameTokens = medicine == null ? <String>{} : normaliseOcr(medicine.name).split(' ').toSet();
     final beforeTokens = before.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
     String batch = '';
+    // Most bills print the batch just before the expiry — check there first.
     for (final t in beforeTokens.reversed.take(4)) {
       final token = t.replaceAll(RegExp(r'^[^A-Z0-9]+|[^A-Z0-9]+$'), '');
       if (_looksLikeBatch(token) && !nameTokens.contains(token)) {
@@ -106,11 +111,33 @@ class SupplierBillParser {
         break;
       }
     }
+    // Some print it right after the item name/pack instead, with the
+    // quantity, MRP, rate and amount columns between it and the expiry —
+    // scan the rest of the row for it.
+    if (batch.isEmpty) {
+      for (final t in beforeTokens) {
+        final token = t.replaceAll(RegExp(r'^[^A-Z0-9]+|[^A-Z0-9]+$'), '');
+        if (_looksLikeBatch(token) && !nameTokens.contains(token)) {
+          batch = token;
+          break;
+        }
+      }
+    }
 
-    // Numbers after the expiry (or the whole row, if no expiry was read).
-    final numberSource = expiryMatch == null && batch.isNotEmpty
-        ? clean.substring(clean.indexOf(batch) + batch.length)
-        : after;
+    // The quantity/price columns start right after the batch — never before
+    // it, which matters when the item name itself has a bare number in it
+    // (a strength like "ZTAB 200" with no unit attached). Fall back to the
+    // whole row when no batch was found at all.
+    final batchEnd = batch.isEmpty ? -1 : clean.indexOf(batch) + batch.length;
+    var numberSource = batchEnd >= 0 ? clean.substring(batchEnd) : clean;
+    if (expiryMatch != null) {
+      final offset = batchEnd >= 0 ? batchEnd : 0;
+      final localStart = (expiryMatch.start - offset).clamp(0, numberSource.length);
+      final localEnd = (expiryMatch.end - offset).clamp(0, numberSource.length);
+      if (localEnd > localStart) {
+        numberSource = numberSource.replaceRange(localStart, localEnd, ' ' * (localEnd - localStart));
+      }
+    }
     final numbers = RegExp(r'(?<![A-Z0-9.])(\d+(?:\.\d{1,2})?)(%?)(?![A-Z0-9])')
         .allMatches(numberSource)
         .where((m) => m.group(2)!.isEmpty)

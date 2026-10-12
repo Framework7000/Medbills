@@ -146,5 +146,37 @@ MICRO LABS LIMITED''');
       expect(line.batchNumber, 'XZ7781');
       expect((line.packs, line.mrpPaise, line.ratePaise), (6, 8000, 5800));
     });
+
+    test('reads a bill where the batch sits right after the item, not next to the expiry', () {
+      // A real cash-memo layout: Item Name, Unit, Batch, Qty+free, MRP,
+      // Rate, Amount, Exp — the batch is far from the expiry, with four
+      // price/qty columns between them, and "ZTAB 200" has a bare strength
+      // number in the name itself (no unit suffix) that must not be read
+      // as part of the quantity.
+      final page = OcrPage.fromText('''
+BHAGWATI PHARMA SALES
+SHOP NO-27,28,29,30 SECOND FLOOR DA   GST No. : 23AASFB6139R1Z0
+CASH MEMO
+Item Name   Unit  Batch   Qty+free  MRP     RATE    AMOUNT  EXP
+ZTAB 200    * 30ML L7166  5+1       95.00   72.40   362.00  5/28
+DUPHALAC SALUTION * 150ML 883171 2  198.14  150.98  301.96  3/28
+GROSS TOTAL : 663.96''');
+      final draft = SupplierBillParser.parse(page, medicines);
+      expect(draft.supplierName, 'Bhagwati Pharma Sales');
+      expect(draft.lines, hasLength(2));
+
+      final ztab = draft.lines[0];
+      expect(ztab.batchNumber, 'L7166');
+      expect((ztab.expiryMonth, ztab.expiryYear), (5, 2028));
+      expect((ztab.packs, ztab.freePacks), (5, 1));
+      expect((ztab.mrpPaise, ztab.ratePaise), (9500, 7240));
+
+      final duphalac = draft.lines[1];
+      expect(duphalac.batchNumber, '883171');
+      expect((duphalac.packs, duphalac.freePacks), (2, 0));
+      expect((duphalac.mrpPaise, duphalac.ratePaise), (19814, 15098));
+
+      expect(draft.billTotalPaise, 66396);
+    });
   });
 }
