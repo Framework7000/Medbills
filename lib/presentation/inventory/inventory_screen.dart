@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../domain/models/batch.dart';
+import '../../domain/models/sale_invoice.dart';
 import '../../domain/services/billing_calculator.dart';
 import '../../domain/services/pack_units.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../state/providers.dart';
+import '../sales/invoice_view.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import 'medicine_edit_dialog.dart';
@@ -220,10 +222,75 @@ class MedicineDetailScreen extends ConsumerWidget {
               _BatchCard(batch: b, unitsPerPack: m.unitsPerPack, asOf: stock.asOf, manager: manager),
               const SizedBox(height: Space.s),
             ],
+            const SizedBox(height: Space.l),
+            _RecentSales(medicineId: medicineId, manager: manager),
           ],
         ),
       ),
     );
+  }
+}
+
+/// This medicine's own sale history and, for managers, the profit it has
+/// actually made — not just the store-wide figure in Reports.
+class _RecentSales extends ConsumerWidget {
+  const _RecentSales({required this.medicineId, required this.manager});
+  final String medicineId;
+  final bool manager;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final text = Theme.of(context).textTheme;
+    final sales = ref.watch(recentSalesProvider).valueOrNull ?? const <SaleInvoice>[];
+    final rows = <(SaleInvoice, SaleLine)>[
+      for (final s in sales)
+        if (!s.isCancelled)
+          for (final l in s.lines)
+            if (l.medicineId == medicineId) (s, l),
+    ];
+    final units = rows.fold<int>(0, (sum, r) => sum + r.$2.quantity);
+    final revenue = rows.fold<int>(0, (sum, r) => sum + r.$2.lineTotalPaise);
+    final cost = rows.fold<int>(0, (sum, r) => sum + r.$2.costPaise);
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Sales', style: text.titleMedium),
+      const SizedBox(height: Space.s),
+      if (manager)
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(Space.l),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              AmountRow('Units sold', '$units'),
+              AmountRow('Revenue', formatRupees(revenue)),
+              AmountRow('Cost', formatRupees(cost)),
+              AmountRow('Profit', formatRupees(revenue - cost), emphasis: true),
+            ]),
+          ),
+        ),
+      const SizedBox(height: Space.s),
+      if (rows.isEmpty)
+        const Card(child: Padding(padding: EdgeInsets.all(Space.l), child: Text('No sales of this medicine yet.')))
+      else
+        Card(
+          child: Column(children: [
+            for (var i = 0; i < rows.length && i < 20; i++) ...[
+              if (i > 0) const Divider(height: 1, indent: Space.l, endIndent: Space.l),
+              ListTile(
+                onTap: () => showInvoice(context, rows[i].$1),
+                title: Text('${PackUnits.describe(rows[i].$2.quantity, rows[i].$2.unitsPerPack)} · ${rows[i].$1.invoiceNumber}'),
+                subtitle: Text(DateFormat('d MMM yyyy, hh:mm a').format(rows[i].$1.createdAt)),
+                trailing: Text(formatRupees(rows[i].$2.lineTotalPaise), style: text.titleSmall),
+              ),
+            ],
+            if (rows.length > 20)
+              Padding(
+                padding: const EdgeInsets.all(Space.m),
+                child: Text('+ ${rows.length - 20} more — see Bills for the full history.',
+                    style: text.bodySmall?.copyWith(color: AppColors.muted)),
+              ),
+          ]),
+        ),
+    ]);
   }
 }
 
@@ -256,8 +323,12 @@ class _BatchCard extends ConsumerWidget {
               ]),
               const SizedBox(height: Space.xs),
               Text(
-                'Exp ${DateFormat('MMM yyyy').format(batch.expiryDate)} · MRP ${formatRupees(batch.mrpPaise)}'
-                '${manager ? ' · cost ${formatRupees(batch.purchasePricePaise)}' : ''}',
+                'Received ${DateFormat('d MMM yyyy').format(batch.createdAt)} · Exp ${DateFormat('MMM yyyy').format(batch.expiryDate)}',
+                style: text.bodySmall?.copyWith(color: AppColors.muted),
+              ),
+              Text(
+                'MRP ${formatRupees(batch.mrpPaise)}'
+                '${manager ? ' · cost ${formatRupees(batch.purchasePricePaise)} · margin ${_margin(batch)}' : ''}',
                 style: text.bodySmall?.copyWith(color: AppColors.muted),
               ),
               Text(PackUnits.describe(batch.quantity, unitsPerPack), style: text.bodyMedium),
@@ -277,5 +348,11 @@ class _BatchCard extends ConsumerWidget {
         ]),
       ),
     );
+  }
+
+  static String _margin(Batch batch) {
+    if (batch.mrpPaise <= 0) return '—';
+    final pct = (batch.mrpPaise - batch.purchasePricePaise) * 100 / batch.mrpPaise;
+    return '${pct.toStringAsFixed(0)}%';
   }
 }
