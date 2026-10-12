@@ -39,3 +39,8 @@ service-account*.json
 key.properties
 
 .DS_Store
+
+# Firestore rules emulator test
+firestore_rules_test/node_modules/
+firestore_rules_test/firestore-debug.log
+firestore_rules_test/firebase-debug.log

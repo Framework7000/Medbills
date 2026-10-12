@@ -1,0 +1,12 @@
+{
+  "name": "medbills_rules_test",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Replays every write MedBills makes against firestore.rules in the Firestore emulator, as owner / pharmacist / counterStaff.",
+  "scripts": {
+    "test": "firebase emulators:exec --project medbills-176df --only firestore \"node rules_test.mjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.0"
+  }
+}
