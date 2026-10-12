@@ -520,6 +520,9 @@ class FirestorePharmacyRepository implements PharmacyRepository {
   Future<void> markScanDone(String eventId) => _scanEvents.doc(eventId).update({'status': 'done'});
 
   @override
+  Future<void> markScanCancelled(String eventId) => _scanEvents.doc(eventId).update({'status': 'cancelled'});
+
+  @override
   String newId() => _store.collection('_ids').doc().id;
 
   @override

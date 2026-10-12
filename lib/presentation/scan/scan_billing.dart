@@ -12,7 +12,7 @@ import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
 import '../../platform/text_reader.dart';
 import '../../state/providers.dart';
-import '../purchases/bill_scan_screen.dart' show receiveBillPhoto;
+import '../purchases/bill_scan_screen.dart' show captureSupplierBill, receiveBillPhoto;
 import '../purchases/medicine_picker.dart';
 import '../widgets/common.dart';
 import 'barcode_scanner_screen.dart';
@@ -48,8 +48,15 @@ ScanFeedback addScannedToBill(WidgetRef ref, StockSummary stock, {String? batchN
   }
   final wanted = batchNumber == null || batchNumber.isEmpty ? null : Batch.normaliseBatchNumber(batchNumber);
   final usedWanted = wanted != null && batches.length == 1 && batches.first.batchNumber == wanted;
-  return ScanFeedback('Added ${PackUnits.describe(units, m.unitsPerPack)} · ${m.name}'
-      '${wanted != null && !usedWanted ? ' (batch $wanted not in stock — billed nearest expiry)' : ''}');
+  // FEFO allocates nearest-expiry first — for one pack's worth this is
+  // almost always a single batch, which is what undo needs to know.
+  final usedBatch = batches.where((b) => b.isSellableAt(now)).firstOrNull;
+  return ScanFeedback(
+    'Added ${PackUnits.describe(units, m.unitsPerPack)} · ${m.name}'
+    '${wanted != null && !usedWanted ? ' (batch $wanted not in stock — billed nearest expiry)' : ''}',
+    appliedBatchId: usedBatch?.id,
+    appliedUnits: units,
+  );
 }
 
 /// Handles one scanned code: adds it to this device's bill, or sends it to
@@ -65,7 +72,7 @@ Future<ScanFeedback> handleScannedCode(BuildContext context, WidgetRef ref, Stri
   if (stock == null) {
     final manager = ref.read(currentUserProvider)?.role.canManageStock ?? false;
     return ScanFeedback(
-      'Barcode $raw isn\'t linked to a medicine yet.',
+      manager ? 'Barcode $raw isn\'t linked to a medicine yet.' : 'Barcode $raw isn\'t linked to a medicine yet — ask the pharmacist.',
       ok: false,
       actionLabel: manager ? 'Link' : null,
       onAction: manager ? () => linkBarcode(context, ref, raw) : null,
@@ -74,8 +81,9 @@ Future<ScanFeedback> handleScannedCode(BuildContext context, WidgetRef ref, Stri
   final target = toCounter ? ref.read(scanTargetProvider) : null;
   if (target != null) {
     final repo = ref.read(repositoryProvider)!;
+    final eventId = repo.newId();
     await repo.sendScan(ScanEvent(
-      id: repo.newId(),
+      id: eventId,
       storeId: repo.storeId,
       stationId: target.id,
       rawBarcode: raw,
@@ -86,10 +94,14 @@ Future<ScanFeedback> handleScannedCode(BuildContext context, WidgetRef ref, Stri
       createdByName: repo.actor.name,
       scannedAt: DateTime.now(),
     ));
-    return ScanFeedback('Sent ${stock.medicine.name} to ${target.name}');
+    return ScanFeedback('Sent ${stock.medicine.name} to ${target.name}', undoToken: eventId);
   }
   return addScannedToBill(ref, stock, batchNumber: hit.batchNumber);
 }
+
+/// Cancels a scan this device sent to a counter — the 3-second undo window.
+Future<void> undoSentScan(WidgetRef ref, String eventId) =>
+    ref.read(repositoryProvider)!.markScanCancelled(eventId);
 
 /// Saves an unknown barcode on the medicine it belongs to, so the next scan
 /// of that pack — on any device — finds it.
@@ -122,7 +134,12 @@ Future<void> openSmartScanner(BuildContext context, WidgetRef ref) => openContin
       title: 'Smart Scan',
       onScan: (raw) => handleScannedCode(context, ref, raw),
       header: const ScanTargetPicker(),
-      onCapturePhoto: DeviceFeatures.textReading ? () => smartPhotoCapture(context, ref) : null,
+      onCapturePhoto: DeviceFeatures.cameraScanning ? () => smartPhotoCapture(context, ref) : null,
+      pendingLabel: () {
+        final target = ref.read(scanTargetProvider);
+        return target == null ? 'Adding…' : 'Sending to ${target.name}…';
+      },
+      onUndo: (feedback) => undoSentScan(ref, feedback.undoToken!),
     );
 
 /// Photographs whatever is in front of the camera, reads it on the device,
@@ -132,7 +149,13 @@ Future<void> openSmartScanner(BuildContext context, WidgetRef ref) => openContin
 /// animate on screen.
 Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref) async {
   if (!DeviceFeatures.textReading) {
-    return const ScanFeedback('Reading text works on the iPhone or Android app.', ok: false);
+    // No on-device text reading here (Mac/Windows/web) — offer the camera
+    // or an existing file, same as Purchases, and attach it as a supplier
+    // bill for review (a phone can read its text later; it shows on every
+    // device either way).
+    final saved = await captureSupplierBill(context, ref);
+    if (saved && context.mounted) Navigator.of(context).pop(); // close Smart Scan behind the review screen
+    return null;
   }
   final photo = await ImagePicker().pickImage(source: ImageSource.camera, maxWidth: 2400, imageQuality: 93);
   if (photo == null || !context.mounted) return null;

@@ -121,6 +121,8 @@ abstract class PharmacyRepository {
   Future<void> sendScan(ScanEvent event);
   Stream<List<ScanEvent>> watchScansFor(String stationId);
   Future<void> markScanDone(String eventId);
+  /// Only the phone that sent it can call this — the 3-second undo window.
+  Future<void> markScanCancelled(String eventId);
   String newId();
 
   void dispose() {}

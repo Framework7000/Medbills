@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../domain/models/customer_credit.dart';
 import '../../domain/models/sale_invoice.dart';
 import '../../domain/models/scan_link.dart';
 import '../../domain/services/billing_calculator.dart';
@@ -14,6 +15,7 @@ import '../../domain/services/schedule_h1_compliance.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
 import '../../state/providers.dart';
+import '../customers/customer_dialogs.dart';
 import '../scan/barcode_scanner_screen.dart';
 import '../scan/scan_billing.dart';
 import '../scan/scan_flows.dart';
@@ -40,6 +42,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
   StreamSubscription<List<ScanEvent>>? _scanSub;
   Timer? _heartbeat;
   final _handledScans = <String>{};
+  final _appliedByEvent = <String, ({String batchId, int units})>{};
   final _incoming = <_IncomingScan>[];
   final _incomingTimers = <String, Timer>{};
 
@@ -167,8 +170,20 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
   void _onRemoteScans(List<ScanEvent> events) {
     if (!mounted) return;
     final now = DateTime.now();
+
+    // A scan we already applied was undone on the sender within its
+    // 3-second window — reverse exactly what it added, even if that
+    // happens after it was already on the bill.
+    for (final e in events) {
+      final applied = e.cancelled ? _appliedByEvent.remove(e.id) : null;
+      if (applied == null) continue;
+      ref.read(cartProvider.notifier).removeUnits(applied.batchId, applied.units);
+      unawaited(HapticFeedback.lightImpact());
+      _showIncoming('${e.id}-undo', '${e.createdByName} (${e.deviceLabel})', 'Undone', true);
+    }
+
     final pending = events
-        .where((e) => !e.done && !_handledScans.contains(e.id) && now.difference(e.scannedAt).inMinutes.abs() < 10)
+        .where((e) => e.status == ScanEventStatus.pending && !_handledScans.contains(e.id) && now.difference(e.scannedAt).inMinutes.abs() < 10)
         .toList()
       ..sort((a, b) => a.scannedAt.compareTo(b.scannedAt));
     final repo = ref.read(repositoryProvider);
@@ -179,16 +194,23 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
       final feedback = stock == null
           ? ScanFeedback('Unknown barcode ${e.rawBarcode}', ok: false)
           : _addScanned(stock, batchNumber: e.batchNumber);
+      if (feedback.ok && feedback.appliedBatchId != null && feedback.appliedUnits != null) {
+        _appliedByEvent[e.id] = (batchId: feedback.appliedBatchId!, units: feedback.appliedUnits!);
+      }
       if (repo != null) unawaited(repo.markScanDone(e.id).catchError((_) {}));
       unawaited(feedback.ok ? HapticFeedback.mediumImpact() : HapticFeedback.heavyImpact());
-      final toast = _IncomingScan(id: e.id, from: '${e.createdByName} (${e.deviceLabel})', message: feedback.message, ok: feedback.ok);
-      setState(() => _incoming.insert(0, toast));
-      _incomingTimers[e.id] = Timer(const Duration(seconds: 3), () {
-        if (!mounted) return;
-        setState(() => _incoming.removeWhere((t) => t.id == e.id));
-        _incomingTimers.remove(e.id);
-      });
+      _showIncoming(e.id, '${e.createdByName} (${e.deviceLabel})', feedback.message, feedback.ok);
     }
+  }
+
+  void _showIncoming(String id, String from, String message, bool ok) {
+    final toast = _IncomingScan(id: id, from: from, message: message, ok: ok);
+    setState(() => _incoming.insert(0, toast));
+    _incomingTimers[id] = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() => _incoming.removeWhere((t) => t.id == id));
+      _incomingTimers.remove(id);
+    });
   }
 
   String get _query => _search.text.trim();
@@ -708,9 +730,11 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
     final text = Theme.of(context).textTheme;
     String rate(double r) => r == r.roundToDouble() ? r.toStringAsFixed(0) : r.toStringAsFixed(1);
 
-    // Keep the fields in step when the cart is cleared.
+    // Keep the fields in step when the cart is cleared or a credit customer chosen.
     if (_name.text != cart.customerName) _name.text = cart.customerName;
     if (_phone.text != cart.customerPhone) _phone.text = cart.customerPhone;
+    final udhaarEnabled = ref.watch(storeProvider).valueOrNull?.udhaarEnabled ?? false;
+    final credit = udhaarEnabled && cart.paymentMode == PaymentMode.credit;
     final busy = widget.busy || _localBusy;
 
     return ListView(
@@ -718,27 +742,35 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
       children: [
         Text('Customer', style: text.titleMedium),
         const SizedBox(height: Space.s),
-        TextField(
-          controller: _name,
-          decoration: const InputDecoration(labelText: 'Name (optional)'),
-          textCapitalization: TextCapitalization.words,
-          onChanged: (v) => notifier.setCustomer(name: v),
-        ),
-        const SizedBox(height: Space.s),
-        TextField(
-          controller: _phone,
-          decoration: const InputDecoration(labelText: 'Mobile (for WhatsApp bill)'),
-          keyboardType: TextInputType.phone,
-          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')), LengthLimitingTextInputFormatter(15)],
-          onChanged: (v) => notifier.setCustomer(phone: v),
-        ),
+        if (credit)
+          _CreditCustomerPicker(selected: cart.creditCustomer, onChanged: notifier.setCreditCustomer)
+        else ...[
+          TextField(
+            controller: _name,
+            decoration: const InputDecoration(labelText: 'Name (optional)'),
+            textCapitalization: TextCapitalization.words,
+            onChanged: (v) => notifier.setCustomer(name: v),
+          ),
+          const SizedBox(height: Space.s),
+          TextField(
+            controller: _phone,
+            decoration: const InputDecoration(labelText: 'Mobile (for WhatsApp bill)'),
+            keyboardType: TextInputType.phone,
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]')), LengthLimitingTextInputFormatter(15)],
+            onChanged: (v) => notifier.setCustomer(phone: v),
+          ),
+        ],
         const SizedBox(height: Space.l),
         Text('Payment', style: text.titleMedium),
         const SizedBox(height: Space.s),
         Wrap(spacing: Space.s, runSpacing: Space.s, children: [
-          for (final mode in PaymentMode.values.where((m) => m != PaymentMode.credit))
+          for (final mode in PaymentMode.values.where((m) => udhaarEnabled || m != PaymentMode.credit))
             ChoiceChip(
-              label: Text(mode == PaymentMode.upi ? 'UPI · Razorpay' : mode.label),
+              label: Text(switch (mode) {
+                PaymentMode.credit => 'Udhaar',
+                PaymentMode.upi => 'UPI · Razorpay',
+                _ => mode.label,
+              }),
               selected: cart.paymentMode == mode,
               onSelected: (_) => notifier.setPaymentMode(mode),
             ),
@@ -769,6 +801,41 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
   }
 }
 
+/// Off by default (Settings → Udhaar accounts). Shown only once the owner
+/// turns it on for this store.
+class _CreditCustomerPicker extends ConsumerWidget {
+  const _CreditCustomerPicker({required this.selected, required this.onChanged});
+  final CustomerCredit? selected;
+  final ValueChanged<CustomerCredit?> onChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final text = Theme.of(context).textTheme;
+    if (selected != null) {
+      final live = ref.watch(customersProvider).valueOrNull?.where((c) => c.id == selected!.id).firstOrNull ?? selected!;
+      return Card(
+        child: ListTile(
+          title: Text(live.name, overflow: TextOverflow.ellipsis),
+          subtitle: Text('${live.phoneNumber.isEmpty ? 'No phone' : live.phoneNumber} · ${live.outstandingBalancePaise < 0 ? 'advance' : 'owes'} ${formatRupees(live.outstandingBalancePaise.abs())}'
+              '${live.creditLimitPaise > 0 ? ' of ${formatRupees(live.creditLimitPaise)} limit' : ''}'),
+          trailing: IconButton(tooltip: 'Change customer', icon: const Icon(Icons.close), onPressed: () => onChanged(null)),
+        ),
+      );
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text('Udhaar sales go on a customer account.', style: text.bodySmall?.copyWith(color: AppColors.muted)),
+      const SizedBox(height: Space.s),
+      OutlinedButton.icon(
+        onPressed: () async {
+          final customer = await pickCustomer(context);
+          if (customer != null) onChanged(customer);
+        },
+        icon: const Icon(Icons.person_search_outlined),
+        label: const Text('Choose customer'),
+      ),
+    ]);
+  }
+}
 
 /// The scanner window: a USB scanner (or typing) works on every device;
 /// Smart Scan and the phone link appear where the device has them.

@@ -434,6 +434,14 @@ class LocalPharmacyRepository implements PharmacyRepository {
   }
 
   @override
+  Future<void> markScanCancelled(String eventId) async {
+    final e = _scanEvents[eventId];
+    if (e == null) return;
+    _scanEvents[eventId] = ScanEvent.fromMap({...e.toMap(), 'status': 'cancelled'});
+    _notify();
+  }
+
+  @override
   String newId() => _nextId('id');
 
   @override

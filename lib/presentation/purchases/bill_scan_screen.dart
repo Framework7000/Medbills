@@ -40,7 +40,8 @@ Medicine? _resolveMedicine(WidgetRef ref, String? id) {
 
 /// Photograph (phone) or pick (computer) a supplier bill, read it on the
 /// device, save the picture with what was read, and open it for review.
-Future<void> captureSupplierBill(BuildContext context, WidgetRef ref) async {
+/// Returns whether a bill was actually saved (false if the user cancelled).
+Future<bool> captureSupplierBill(BuildContext context, WidgetRef ref) async {
   ImageSource? source = ImageSource.gallery;
   if (DeviceFeatures.cameraScanning) {
     source = await showModalBottomSheet<ImageSource>(
@@ -55,18 +56,19 @@ Future<void> captureSupplierBill(BuildContext context, WidgetRef ref) async {
             onTap: () => Navigator.pop(context, ImageSource.camera),
           ),
           ListTile(
-            leading: const Icon(Icons.photo_library_outlined),
-            title: const Text('Choose a photo'),
+            leading: const Icon(Icons.upload_file_outlined),
+            title: const Text('Choose a file'),
+            subtitle: const Text('Pick an existing photo or scan from this computer'),
             onTap: () => Navigator.pop(context, ImageSource.gallery),
           ),
         ]),
       ),
     );
   }
-  if (source == null || !context.mounted) return;
+  if (source == null || !context.mounted) return false;
   final file = await ImagePicker().pickImage(source: source, maxWidth: 2400, imageQuality: 95);
-  if (file == null || !context.mounted) return;
-  await receiveBillPhoto(context, ref, file);
+  if (file == null || !context.mounted) return false;
+  return receiveBillPhoto(context, ref, file);
 }
 
 /// Reads [file] as a supplier bill, saves it and opens it for review.

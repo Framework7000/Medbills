@@ -183,8 +183,12 @@ service cloud.firestore {
         allow create: if isMember(storeId) && storeIdMatches(storeId)
             && request.resource.data.createdBy == request.auth.uid
             && request.resource.data.status == 'pending';
+        // The counter marks one it applied 'done'; only the phone that sent
+        // it may 'cancel' it — the 3-second undo window — and may do so
+        // even after the counter already marked it 'done'.
         allow update: if isMember(storeId) && onlyChanged(['status'])
-            && request.resource.data.status == 'done';
+            && (request.resource.data.status == 'done'
+                || (request.resource.data.status == 'cancelled' && resource.data.createdBy == request.auth.uid));
         allow delete: if false;
       }
 

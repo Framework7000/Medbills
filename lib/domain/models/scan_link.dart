@@ -41,6 +41,8 @@ class ScanStation {
       );
 }
 
+enum ScanEventStatus { pending, done, cancelled }
+
 /// One barcode (or recognised pack) scanned on a phone for a counter's bill.
 class ScanEvent {
   final String id;
@@ -53,7 +55,7 @@ class ScanEvent {
   final String createdBy;
   final String createdByName;
   final DateTime scannedAt;
-  final bool done;
+  final ScanEventStatus status;
 
   const ScanEvent({
     required this.id,
@@ -66,8 +68,11 @@ class ScanEvent {
     required this.createdBy,
     required this.createdByName,
     required this.scannedAt,
-    this.done = false,
+    this.status = ScanEventStatus.pending,
   });
+
+  bool get done => status == ScanEventStatus.done;
+  bool get cancelled => status == ScanEventStatus.cancelled;
 
   Map<String, dynamic> toMap() => {
         'id': id,
@@ -80,7 +85,7 @@ class ScanEvent {
         'createdBy': createdBy,
         'createdByName': createdByName,
         'scannedAt': scannedAt,
-        'status': done ? 'done' : 'pending',
+        'status': status.name,
       };
 
   factory ScanEvent.fromMap(Map<String, dynamic> map) => ScanEvent(
@@ -94,6 +99,6 @@ class ScanEvent {
         createdBy: readString(map['createdBy']),
         createdByName: readString(map['createdByName']),
         scannedAt: readDate(map['scannedAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
-        done: map['status'] == 'done',
+        status: ScanEventStatus.values.firstWhere((s) => s.name == map['status'], orElse: () => ScanEventStatus.pending),
       );
 }

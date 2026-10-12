@@ -172,6 +172,22 @@ class CartNotifier extends StateNotifier<CartState> {
     state = state.copyWith(lines: [...state.lines]..removeAt(index));
   }
 
+  /// Reverses exactly what one earlier scan added to [batchId] — used to
+  /// undo a remote scan the sender cancelled, without touching anything
+  /// else someone may have added to that same line since.
+  void removeUnits(String batchId, int units) {
+    final index = state.lines.indexWhere((l) => l.batchId == batchId);
+    if (index < 0) return;
+    final left = state.lines[index].quantity - units;
+    if (left <= 0) {
+      remove(index);
+    } else {
+      final lines = [...state.lines];
+      lines[index] = lines[index].withQuantity(left);
+      state = state.copyWith(lines: lines);
+    }
+  }
+
   void setPaymentMode(PaymentMode mode) {
     state = state.copyWith(paymentMode: mode, clearCreditCustomer: mode != PaymentMode.credit);
   }

@@ -282,6 +282,10 @@ await check('a phone can send a scan event to a station', () =>
   })));
 await check('the counter can mark a scan event done', () =>
   assertSucceeds(updateDoc(doc(owner, `stores/${STORE}/scanEvents/evt-1`), { status: 'done' })));
+await check('someone other than the sender cannot cancel a scan event', () =>
+  assertFails(updateDoc(doc(owner, `stores/${STORE}/scanEvents/evt-1`), { status: 'cancelled' })));
+await check('the sender can cancel their own scan — the 3-second undo — even after the counter marked it done', () =>
+  assertSucceeds(updateDoc(doc(counter, `stores/${STORE}/scanEvents/evt-1`), { status: 'cancelled' })));
 
 console.log('\n--- audit log ---');
 await check('any member can write an audit entry for themselves', () =>
