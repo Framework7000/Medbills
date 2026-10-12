@@ -58,19 +58,28 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       return Scaffold(
         body: SafeArea(
           child: Row(children: [
-            NavigationRail(
-              selectedIndex: _index,
-              labelType: NavigationRailLabelType.all,
-              leading: _RailHeader(user: user),
-              onDestinationSelected: (i) => setState(() => _index = i),
-              destinations: [
-                for (final d in destinations)
-                  NavigationRailDestination(
-                    icon: Icon(d.icon),
-                    selectedIcon: Icon(d.selectedIcon),
-                    label: Text(d.label),
+            // A short window (resized small, or a laptop split-view) must
+            // never overflow the rail — scroll it instead of clipping.
+            SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: MediaQuery.sizeOf(context).height),
+                child: IntrinsicHeight(
+                  child: NavigationRail(
+                    selectedIndex: _index,
+                    labelType: NavigationRailLabelType.all,
+                    leading: _RailHeader(user: user),
+                    onDestinationSelected: (i) => setState(() => _index = i),
+                    destinations: [
+                      for (final d in destinations)
+                        NavigationRailDestination(
+                          icon: Icon(d.icon),
+                          selectedIcon: Icon(d.selectedIcon),
+                          label: Text(d.label),
+                        ),
+                    ],
                   ),
-              ],
+                ),
+              ),
             ),
             const VerticalDivider(width: 1),
             Expanded(

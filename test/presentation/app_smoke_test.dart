@@ -28,6 +28,8 @@ const _sizes = {
   'iPhone XR / 17 (414×896)': Size(414, 896),
   'iPad portrait (768×1024)': Size(768, 1024),
   'Mac / Windows (1440×900)': Size(1440, 900),
+  // A resized/short desktop window — the nav rail must scroll, never overflow.
+  'Short Mac window (900×600)': Size(900, 600),
 };
 
 Future<void> _pumpApp(WidgetTester tester, Size size) async {
@@ -47,6 +49,10 @@ Finder _nav(String label) {
 
 Future<void> _open(WidgetTester tester, String label) async {
   if (_nav(label).evaluate().isNotEmpty) {
+    // A short window scrolls the rail — bring the destination into view
+    // (a no-op where it's already visible) before tapping it.
+    await tester.ensureVisible(_nav(label));
+    await tester.pumpAndSettle();
     await tester.tap(_nav(label));
   } else {
     // Phone: the remaining sections live behind "More".
