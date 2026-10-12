@@ -11,6 +11,11 @@ class StoreProfile {
   final String gstin;
   final String drugLicenseNumbers;
 
+  /// Off by default — the owner turns it on in Settings when the store
+  /// actually wants to sell on credit. Hidden, not deleted: turning it back
+  /// off never touches existing customer/ledger data.
+  final bool udhaarEnabled;
+
   const StoreProfile({
     required this.storeId,
     required this.name,
@@ -20,6 +25,7 @@ class StoreProfile {
     this.phone = '',
     this.gstin = '',
     this.drugLicenseNumbers = '',
+    this.udhaarEnabled = false,
   });
 
   String get fullAddress =>
@@ -33,6 +39,7 @@ class StoreProfile {
     String? phone,
     String? gstin,
     String? drugLicenseNumbers,
+    bool? udhaarEnabled,
   }) {
     return StoreProfile(
       storeId: storeId,
@@ -43,6 +50,7 @@ class StoreProfile {
       phone: phone ?? this.phone,
       gstin: gstin ?? this.gstin,
       drugLicenseNumbers: drugLicenseNumbers ?? this.drugLicenseNumbers,
+      udhaarEnabled: udhaarEnabled ?? this.udhaarEnabled,
     );
   }
 
@@ -55,6 +63,7 @@ class StoreProfile {
         'phone': phone,
         'gstin': gstin,
         'drugLicenseNumbers': drugLicenseNumbers,
+        'udhaarEnabled': udhaarEnabled,
       };
 
   factory StoreProfile.fromMap(Map<String, dynamic> map) {
@@ -67,6 +76,7 @@ class StoreProfile {
       phone: readString(map['phone']),
       gstin: readString(map['gstin']),
       drugLicenseNumbers: readString(map['drugLicenseNumbers']),
+      udhaarEnabled: map['udhaarEnabled'] == true,
     );
   }
 }

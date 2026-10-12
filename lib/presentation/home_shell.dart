@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/models/app_user.dart';
 import '../state/providers.dart';
 import 'billing/billing_screen.dart';
+import 'customers/customers_screen.dart';
 import 'inventory/inventory_screen.dart';
 import 'purchases/purchases_screen.dart';
 import 'reports/reports_screen.dart';
@@ -20,11 +21,15 @@ class _Destination {
   final Widget Function() builder;
 }
 
-List<_Destination> _destinationsFor(UserRole role) => [
+List<_Destination> _destinationsFor(UserRole role, {required bool udhaarEnabled}) => [
       _Destination('Billing', Icons.point_of_sale_outlined, Icons.point_of_sale, () => const BillingScreen()),
       _Destination('Scan', Icons.qr_code_scanner_outlined, Icons.qr_code_scanner, () => const ScanScreen()),
       _Destination('Stock', Icons.inventory_2_outlined, Icons.inventory_2, () => const InventoryScreen()),
       _Destination('Bills', Icons.receipt_long_outlined, Icons.receipt_long, () => const BillHistoryScreen()),
+      // Off by default — the owner turns this on in Settings.
+      if (udhaarEnabled)
+        _Destination('Udhaar', Icons.account_balance_wallet_outlined, Icons.account_balance_wallet,
+            () => const CustomersScreen()),
       if (role.canManageStock)
         _Destination('Purchases', Icons.local_shipping_outlined, Icons.local_shipping, () => const PurchasesScreen()),
       if (role.canViewReports)
@@ -48,7 +53,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider)!;
-    final destinations = _destinationsFor(user.role);
+    final udhaarEnabled = ref.watch(storeProvider).valueOrNull?.udhaarEnabled ?? false;
+    final destinations = _destinationsFor(user.role, udhaarEnabled: udhaarEnabled);
     if (_index >= destinations.length) _index = 0;
 
     // Low/out-of-stock count, shown as a badge on Stock so it needs no

@@ -81,6 +81,31 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: Space.l),
+              Text('Billing', style: text.titleMedium),
+              const SizedBox(height: Space.s),
+              Card(
+                child: AsyncBody<StoreProfile>(
+                  value: store,
+                  builder: (p) => SwitchListTile(
+                    secondary: const Icon(Icons.account_balance_wallet_outlined),
+                    title: const Text('Udhaar accounts'),
+                    subtitle: Text(user.role.canEditStore
+                        ? 'Let staff sell on credit and track customer accounts.'
+                        : 'Only the owner can turn this on.'),
+                    value: p.udhaarEnabled,
+                    onChanged: !user.role.canEditStore
+                        ? null
+                        : (v) async {
+                            try {
+                              await ref.read(repositoryProvider)!.updateStore(p.copyWith(udhaarEnabled: v));
+                            } catch (e) {
+                              if (context.mounted) showMessage(context, friendlyError(e), error: true);
+                            }
+                          },
+                  ),
+                ),
+              ),
+              const SizedBox(height: Space.l),
               Text('Account', style: text.titleMedium),
               const SizedBox(height: Space.s),
               Card(
