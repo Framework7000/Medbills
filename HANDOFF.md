@@ -139,9 +139,29 @@ landed — here's the honest split:
 
 - **Done**: the Smart Scan classifier + animations + undo (B/E above),
   hiding Udhaar behind a toggle (G), the desktop file-picker half of C.
+  **A** — the phone now remembers its last-used counter across restarts
+  (`ScanTargetMemory`, shared_preferences) and shows "Counter offline"
+  instead of silently falling back to this device's own bill when that
+  remembered counter isn't listening; a "Not delivered" card on the Scan
+  tab lists scans no counter picked up within 10 minutes.
+  **D** — added a widget test (`test/presentation/scan_queue_test.dart`)
+  that proves a remote scan lands on a counter's cart immediately even
+  while a quantity-picker dialog is open there — not dropped or delayed.
+  Writing it caught two real bugs, now fixed: `_askCounterName` was
+  disposing its `TextEditingController` via the dialog's pop future
+  (which resolves before the exit transition finishes, while the field
+  is still on screen) — it's now its own `StatefulWidget` that disposes
+  in its own `dispose()`. And `BillingScreen.dispose()` called
+  `ref.read()` to stop an active station, which throws once Riverpod has
+  already marked the widget's `ref` disposed — it now reads the repo
+  from a field captured when the station started. Per-action
+  who/device attribution (`ScanEvent.createdBy/createdByName/
+  deviceLabel`, same on `SaleInvoice`/`PurchaseRecord`/`BillScan`/audit
+  entries) and the `firestore.rules` role split (counter staff can scan
+  and capture bill photos; only owner/pharmacist can receive stock or
+  link barcodes) were re-checked and are already correct — no changes
+  needed there.
 - **Not done**:
-  - **A** — remembering the phone's last-used counter, a "Counter offline"
-    label, a "Not delivered" list for scans no counter picked up within 10 min.
   - **B** (remainder) — a Selling/Receiving mode switch on the phone;
     "Receiving" building one draft purchase instead of hitting the bill
     directly; warning before receiving a bill already received (same
@@ -149,12 +169,6 @@ landed — here's the honest split:
     requested `smart_scan_classifier.dart` with its own dedicated test file.
   - **C** (remainder) — true drag-and-drop of a file onto the Mac/Windows
     window (only "Choose a file" via the picker exists).
-  - **D** — explicitly verifying incoming scans queue (not drop) while a
-    quantity/H1/checkout dialog is open; confirming per-action
-    who/device attribution is complete; a role-based rules review — this
-    session didn't find a rules gap, but it also didn't get a dedicated
-    pass, and no rules were deployed (that needs the owner's key per their
-    own standing instruction — never request one without being asked).
   - **E** (remainder) — the receiving counter's "item flies into the bill,
     row pulses once, total counts up" animation. What exists is the
     animated arrival toast; the bill list itself doesn't yet animate the
