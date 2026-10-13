@@ -62,8 +62,8 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
 
   // ------------------------------------------------------------- scanning
 
-  ScanFeedback _addScanned(StockSummary stock, {String? batchNumber}) =>
-      addScannedToBill(ref, stock, batchNumber: batchNumber);
+  ScanFeedback _addScanned(StockSummary stock, {String? batchNumber, int? units}) =>
+      addScannedToBill(ref, stock, batchNumber: batchNumber, requestedUnits: units);
 
   Future<ScanFeedback> _handleCode(String raw, {bool toCounter = true}) =>
       handleScannedCode(context, ref, raw, toCounter: toCounter);
@@ -177,7 +177,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
       final stock = (e.medicineId == null ? null : index[e.medicineId]) ?? resolveBarcode(e.rawBarcode, index).stock;
       final feedback = stock == null
           ? ScanFeedback('Unknown barcode ${e.rawBarcode}', ok: false)
-          : _addScanned(stock, batchNumber: e.batchNumber);
+          : _addScanned(stock, batchNumber: e.batchNumber, units: e.units);
       if (feedback.ok && feedback.appliedBatchId != null && feedback.appliedUnits != null) {
         _appliedByEvent[e.id] = (batchId: feedback.appliedBatchId!, units: feedback.appliedUnits!);
       }
@@ -386,6 +386,15 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
                         ),
                       )
                     : IconButton(tooltip: 'Scan (F3)', icon: const Icon(PhosphorIconsRegular.scanSmiley), onPressed: _openScanHub),
+              if (DeviceFeatures.isPhone &&
+                  !ref.watch(cartProvider.select((c) => c.isEmpty)) &&
+                  (ref.watch(stationsProvider).valueOrNull ?? const <ScanStation>[])
+                      .any((s) => s.isAvailableAt(DateTime.now())))
+                IconButton(
+                  tooltip: 'Send this bill to a counter',
+                  icon: const Icon(PhosphorIconsRegular.desktop),
+                  onPressed: () => sendCartToStation(context, ref),
+                ),
               if (!ref.watch(cartProvider.select((c) => c.isEmpty)))
                 TextButton.icon(
                   onPressed: () async {

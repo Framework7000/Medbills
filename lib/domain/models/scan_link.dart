@@ -51,6 +51,7 @@ class ScanEvent {
   final String rawBarcode;
   final String? medicineId; // set when the phone already identified it
   final String? batchNumber;
+  final int? units; // explicit quantity (a transferred bill line); null = one pack, as a physical scan would be
   final String deviceLabel;
   final String createdBy;
   final String createdByName;
@@ -64,6 +65,7 @@ class ScanEvent {
     required this.rawBarcode,
     this.medicineId,
     this.batchNumber,
+    this.units,
     required this.deviceLabel,
     required this.createdBy,
     required this.createdByName,
@@ -81,6 +83,7 @@ class ScanEvent {
         'rawBarcode': rawBarcode,
         'medicineId': medicineId,
         'batchNumber': batchNumber,
+        'units': units,
         'deviceLabel': deviceLabel,
         'createdBy': createdBy,
         'createdByName': createdByName,
@@ -95,6 +98,7 @@ class ScanEvent {
         rawBarcode: readString(map['rawBarcode']),
         medicineId: map['medicineId'] as String?,
         batchNumber: map['batchNumber'] as String?,
+        units: map['units'] as int?,
         deviceLabel: readString(map['deviceLabel']),
         createdBy: readString(map['createdBy']),
         createdByName: readString(map['createdByName']),

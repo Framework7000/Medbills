@@ -78,9 +78,13 @@ class ReceivingDraftNotifier extends StateNotifier<BillDraft> {
   void clear() => state = const BillDraft();
 }
 
-/// Adds one pack of a scanned medicine to this device's bill — the scanned
-/// batch when it is on the shelf, otherwise nearest expiry first.
-ScanFeedback addScannedToBill(WidgetRef ref, StockSummary stock, {String? batchNumber}) {
+/// Adds a scanned medicine to this device's bill — the scanned batch when
+/// it is on the shelf, otherwise nearest expiry first. One pack by default
+/// (a physical scan); [requestedUnits] adds exactly that many base units
+/// instead — capped at what's actually free, never more — for transferring
+/// an already-built line (e.g. a phone's bill sent to a counter) rather
+/// than a single pack scan.
+ScanFeedback addScannedToBill(WidgetRef ref, StockSummary stock, {String? batchNumber, int? requestedUnits}) {
   final m = stock.medicine;
   if (!m.scheduleType.isSellable) {
     return ScanFeedback('${m.name} is unclassified — set its schedule in Stock first.', ok: false);
@@ -96,7 +100,8 @@ ScanFeedback addScannedToBill(WidgetRef ref, StockSummary stock, {String? batchN
         stock.isOutOfStock ? '${m.name} is out of stock.' : 'All ${m.name} in stock is already on this bill.',
         ok: false);
   }
-  final units = free < m.unitsPerPack ? free : m.unitsPerPack;
+  final wantedUnits = requestedUnits ?? m.unitsPerPack;
+  final units = free < wantedUnits ? free : wantedUnits;
   try {
     ref.read(cartProvider.notifier).addMedicine(m, batches, units, now: now);
   } catch (e) {
@@ -109,10 +114,44 @@ ScanFeedback addScannedToBill(WidgetRef ref, StockSummary stock, {String? batchN
   final usedBatch = batches.where((b) => b.isSellableAt(now)).firstOrNull;
   return ScanFeedback(
     'Added ${PackUnits.describe(units, m.unitsPerPack)} · ${m.name}'
-    '${wanted != null && !usedWanted ? ' (batch $wanted not in stock — billed nearest expiry)' : ''}',
+    '${wanted != null && !usedWanted ? ' (batch $wanted not in stock — billed nearest expiry)' : ''}'
+    '${units < wantedUnits ? ' (only $units of $wantedUnits available)' : ''}',
     appliedBatchId: usedBatch?.id,
     appliedUnits: units,
   );
+}
+
+/// Adds a scan to this device's own bill, or — when a counter is chosen —
+/// sends it there instead, exactly the same way whether it came from a
+/// barcode or a photographed pack: the phone is a capture device first,
+/// its own bill second.
+Future<ScanFeedback> _sendOrAddToBill(
+  WidgetRef ref, {
+  required StockSummary stock,
+  String? batchNumber,
+  String rawBarcode = '',
+  int? units,
+  ScanStation? target,
+}) async {
+  if (target != null) {
+    final repo = ref.read(repositoryProvider)!;
+    final eventId = repo.newId();
+    await repo.sendScan(ScanEvent(
+      id: eventId,
+      storeId: repo.storeId,
+      stationId: target.id,
+      rawBarcode: rawBarcode.isEmpty ? stock.medicine.name : rawBarcode,
+      medicineId: stock.medicine.id,
+      batchNumber: batchNumber,
+      units: units,
+      deviceLabel: DeviceFeatures.label,
+      createdBy: repo.actor.uid,
+      createdByName: repo.actor.name,
+      scannedAt: DateTime.now(),
+    ));
+    return ScanFeedback('Sent ${stock.medicine.name} to ${target.name}', undoToken: eventId);
+  }
+  return addScannedToBill(ref, stock, batchNumber: batchNumber, requestedUnits: units);
 }
 
 /// Handles one scanned code: adds it to this device's bill, or sends it to
@@ -134,25 +173,59 @@ Future<ScanFeedback> handleScannedCode(BuildContext context, WidgetRef ref, Stri
       onAction: manager ? () => linkBarcode(context, ref, raw) : null,
     );
   }
-  final target = toCounter ? ref.read(scanTargetProvider) : null;
-  if (target != null) {
-    final repo = ref.read(repositoryProvider)!;
-    final eventId = repo.newId();
-    await repo.sendScan(ScanEvent(
-      id: eventId,
-      storeId: repo.storeId,
-      stationId: target.id,
-      rawBarcode: raw,
-      medicineId: stock.medicine.id,
-      batchNumber: hit.batchNumber,
-      deviceLabel: DeviceFeatures.label,
-      createdBy: repo.actor.uid,
-      createdByName: repo.actor.name,
-      scannedAt: DateTime.now(),
-    ));
-    return ScanFeedback('Sent ${stock.medicine.name} to ${target.name}', undoToken: eventId);
+  return _sendOrAddToBill(ref,
+      stock: stock, batchNumber: hit.batchNumber, rawBarcode: raw, target: toCounter ? ref.read(scanTargetProvider) : null);
+}
+
+/// Sends every line on this device's own bill to a chosen counter in one
+/// go — the phone picks the items, the counter (PC) finishes the sale.
+/// Clears this device's bill once sent; it's the counter's bill now.
+Future<void> sendCartToStation(BuildContext context, WidgetRef ref) async {
+  final cart = ref.read(cartProvider);
+  if (cart.isEmpty) return;
+  final now = DateTime.now();
+  final stations =
+      (ref.read(stationsProvider).valueOrNull ?? const <ScanStation>[]).where((s) => s.isAvailableAt(now)).toList();
+  if (stations.isEmpty) {
+    showMessage(context, 'No counter is online right now.', error: true);
+    return;
   }
-  return addScannedToBill(ref, stock, batchNumber: hit.batchNumber);
+  final target = stations.length == 1
+      ? stations.first
+      : await showDialog<ScanStation>(
+          context: context,
+          builder: (_) => SimpleDialog(
+            title: const Text('Send this bill to'),
+            children: [
+              for (final s in stations) SimpleDialogOption(onPressed: () => Navigator.pop(context, s), child: Text(s.name)),
+            ],
+          ),
+        );
+  if (target == null || !context.mounted) return;
+  final repo = ref.read(repositoryProvider)!;
+  try {
+    for (final line in cart.lines) {
+      await repo.sendScan(ScanEvent(
+        id: repo.newId(),
+        storeId: repo.storeId,
+        stationId: target.id,
+        rawBarcode: line.name,
+        medicineId: line.medicineId,
+        batchNumber: line.batchNumber,
+        units: line.quantity,
+        deviceLabel: DeviceFeatures.label,
+        createdBy: repo.actor.uid,
+        createdByName: repo.actor.name,
+        scannedAt: DateTime.now(),
+      ));
+    }
+    ref.read(cartProvider.notifier).clear();
+    if (context.mounted) {
+      showMessage(context, 'Sent ${cart.lines.length} line${cart.lines.length == 1 ? '' : 's'} to ${target.name}.');
+    }
+  } catch (e) {
+    if (context.mounted) showMessage(context, friendlyError(e), error: true);
+  }
 }
 
 /// Cancels a scan this device sent to a counter — the 3-second undo window.
@@ -270,7 +343,8 @@ Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref) asy
   }
   final stock = index[scan.medicine.id];
   if (stock == null) return const ScanFeedback('Medicine not found in this store\'s stock.', ok: false);
-  final feedback = addScannedToBill(ref, stock, batchNumber: info.batchNumber);
+  final feedback = await _sendOrAddToBill(ref,
+      stock: stock, batchNumber: info.batchNumber, target: ref.read(scanTargetProvider));
   if (info.mrpPaise != null && feedback.ok) {
     final billed = batchesFor(stock, info.batchNumber).firstOrNull;
     if (billed != null && billed.mrpPaise != info.mrpPaise) {

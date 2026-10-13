@@ -226,19 +226,55 @@ landed — here's the honest split:
   scanner, the receiving-draft helper) down to the essentials.
   **What's honestly incomplete**: the text trim only covered the Scan
   screen, not an exhaustive pass over every screen's helper/subtitle
-  copy. And the "re-check every screen on iPhone XR and Mac" verification
-  relied on the automated suite — `flutter analyze` clean, all 105 tests
-  green including `app_smoke_test.dart`'s overflow checks at iPhone SE,
-  iPhone XR, iPad, Mac/Windows and Short-Mac-window sizes, and a real
-  `flutter build macos` succeeding — but NOT a live look at the rendered
-  Mac app: launching the freshly built app in this environment produced
-  a running process with no visible window (no crash, `flutter test`'s
-  widget-tree rendering is unaffected by this — it's specific to actually
-  opening a GUI window here), so a human should open it once and glance
-  over the icon set before trusting it blind.
+  copy. The Mac app couldn't be visually confirmed live in this
+  environment (a real `flutter build macos` succeeded, but the launched
+  process showed no window here) — the owner did confirm the icons on
+  the real iPhone look right (screenshot, Billing screen), which is the
+  automated suite plus one real device, not a Mac glance.
+
+  **Bill-reading, post-F**: the owner reported the bill reader
+  "isn't understanding what's written" and asked for more medicines,
+  a smarter read, and full edit power when a medicine isn't known yet.
+  What was already there, confirmed working: an unmatched line already
+  gets a clearly-flagged "(not matched)" row with a search field that
+  offers "New medicine" (full editor: generic, manufacturer, HSN, GST,
+  schedule, pack size) right there, and receiving stock from it works
+  the same as any other line. What was actually wrong: a *weak* match —
+  the matcher's best guess, but below its own confidence bar, or with a
+  close second candidate — was auto-filled as if it were certain, with
+  no flag at all. Fixed: only a confident match auto-fills now; anything
+  weaker is treated like an unmatched line (same warning styling, guess
+  kept as the search starting point) rather than silently shown as
+  settled. Catalogue expanded 163 → 210. On Mac (no on-device OCR by the
+  owner's own standing choice — no cloud OCR for patient-data privacy),
+  the messaging after a bill capture and the empty-lines state used to
+  read like something had failed; reworded to lead with what actually
+  works there (type the line, search or add new) instead of apologizing
+  for a phone not being used.
+
+  **Send bill to a counter ("send to PC")**: the owner flagged that a
+  pack photographed on the phone always landed on the phone's own bill
+  even when a counter was chosen as the scan target — only raw barcode
+  scans respected that choice. Fixed (`_sendOrAddToBill` in
+  `scan_billing.dart`, shared by both paths now). Also added: a "Send
+  this bill to a counter" button on the phone's Billing app bar
+  (desktop icon, phone-only, shown when the cart has lines and a
+  counter is online) that sends the *entire* built-up bill — exact
+  quantities per line, not one pack at a time — and clears the phone's
+  own bill once sent. Needed a new `ScanEvent.units` field (null = one
+  pack, as a physical scan always was; set = an exact quantity) and
+  `addScannedToBill`'s new `requestedUnits` parameter, capped at what's
+  actually free. The owner's stated intent: the phone is mainly a
+  capture device (scan, photograph a bill, photograph a pack) and the
+  PC is where everything gets finished — this is a step toward that,
+  not the whole of it.
 - **Not done**:
   - **H** — correctly left undone on purpose (Razorpay/UPI QR, separate
     per-person logins, Excel export/backups) — the owner said to wait.
+  - A dedicated picker UI for choosing *which* counter to send the bill
+    to when more than one is online exists (a plain list dialog) but
+    hasn't been seen live — only exercised by a test with a single
+    counter, since only one was ever registered in this session.
 
 ## Next steps (in order)
 
