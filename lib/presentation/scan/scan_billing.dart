@@ -6,16 +6,17 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../domain/models/batch.dart';
+import '../../domain/models/bill_scan.dart';
 import '../../domain/models/scan_link.dart';
 import '../../domain/services/billing_calculator.dart';
-import '../../domain/services/capture_classifier.dart';
 import '../../domain/services/pack_units.dart';
+import '../../domain/services/smart_scan_classifier.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
 import '../../platform/scan_target_memory.dart';
 import '../../platform/text_reader.dart';
 import '../../state/providers.dart';
-import '../purchases/bill_scan_screen.dart' show captureSupplierBill, receiveBillPhoto;
+import '../purchases/bill_scan_screen.dart' show BillReviewScreen, captureSupplierBill, receiveBillPhoto;
 import '../purchases/medicine_picker.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -25,6 +26,56 @@ import 'scan_flows.dart';
 /// On a phone: the counter that camera scans are sent to (null = this
 /// phone's own bill).
 final scanTargetProvider = StateProvider<ScanStation?>((ref) => null);
+
+/// Smart Scan on the phone: selling adds a pack to a bill (this device's or
+/// a counter's); receiving instead builds up one draft purchase, pack by
+/// pack, for a pharmacist to price-check and receive — scanning a delivery
+/// must never put stock straight onto a customer's bill.
+enum ScanMode { selling, receiving }
+
+final scanModeProvider = StateProvider<ScanMode>((ref) => ScanMode.selling);
+
+/// The in-progress draft built by scanning packs in receiving mode. Cleared
+/// once it's handed off to the pharmacist for review (or the user signs out).
+final receivingDraftProvider = StateNotifierProvider<ReceivingDraftNotifier, BillDraft>((ref) {
+  ref.watch(currentUserProvider.select((u) => u?.uid));
+  return ReceivingDraftNotifier();
+});
+
+class ReceivingDraftNotifier extends StateNotifier<BillDraft> {
+  ReceivingDraftNotifier() : super(const BillDraft());
+
+  /// One pack read off a delivery — merged into an existing line for the
+  /// same medicine and batch, or added as a new one.
+  void addPack({
+    required String? medicineId,
+    required String medicineName,
+    String batchNumber = '',
+    int? expiryMonth,
+    int? expiryYear,
+    int mrpPaise = 0,
+  }) {
+    final lines = [...state.lines];
+    final i = lines.indexWhere((l) => l.medicineId == medicineId && l.batchNumber == batchNumber);
+    if (i >= 0) {
+      lines[i] = lines[i].copyWith(packs: lines[i].packs + 1);
+    } else {
+      lines.add(BillDraftLine(
+        rawText: medicineName,
+        medicineId: medicineId,
+        medicineName: medicineName,
+        batchNumber: batchNumber,
+        expiryMonth: expiryMonth,
+        expiryYear: expiryYear,
+        packs: 1,
+        mrpPaise: mrpPaise,
+      ));
+    }
+    state = state.copyWith(lines: lines);
+  }
+
+  void clear() => state = const BillDraft();
+}
 
 /// Adds one pack of a scanned medicine to this device's bill — the scanned
 /// batch when it is on the shelf, otherwise nearest expiry first.
@@ -137,14 +188,32 @@ Future<void> openSmartScanner(BuildContext context, WidgetRef ref) => openContin
       context,
       title: 'Smart Scan',
       onScan: (raw) => handleScannedCode(context, ref, raw),
-      header: const ScanTargetPicker(),
+      header: const SmartScanHeader(),
       onCapturePhoto: DeviceFeatures.cameraScanning ? () => smartPhotoCapture(context, ref) : null,
       pendingLabel: () {
+        if (ref.read(scanModeProvider) == ScanMode.receiving) return 'Adding to draft…';
         final target = ref.read(scanTargetProvider);
         return target == null ? 'Adding…' : 'Sending to ${target.name}…';
       },
       onUndo: (feedback) => undoSentScan(ref, feedback.undoToken!),
     );
+
+/// What shows above the live Smart Scan camera: selling's counter picker, or
+/// receiving's mode toggle and running draft — reactive to the mode switch
+/// without having to reopen the scanner.
+class SmartScanHeader extends ConsumerWidget {
+  const SmartScanHeader({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!DeviceFeatures.isPhone) return const ScanTargetPicker();
+    final mode = ref.watch(scanModeProvider);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const ScanModeToggle(),
+      if (mode == ScanMode.receiving) const ReceivingSummary() else const ScanTargetPicker(),
+    ]);
+  }
+}
 
 /// Photographs whatever is in front of the camera, reads it on the device,
 /// and routes it: several parsed lines → a supplier bill, saved for review;
@@ -185,6 +254,18 @@ Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref) asy
   final info = scan.info;
   if (info.hasExpiry && Batch.endOfMonth(info.expiryYear!, info.expiryMonth!).isBefore(DateTime.now())) {
     return const ScanFeedback('That pack is expired — not added.', ok: false);
+  }
+  if (ref.read(scanModeProvider) == ScanMode.receiving) {
+    ref.read(receivingDraftProvider.notifier).addPack(
+          medicineId: scan.medicine.id,
+          medicineName: scan.medicine.name,
+          batchNumber: info.batchNumber ?? '',
+          expiryMonth: info.expiryMonth,
+          expiryYear: info.expiryYear,
+          mrpPaise: info.mrpPaise ?? 0,
+        );
+    return ScanFeedback('Added to receiving draft · ${scan.medicine.name}'
+        '${info.batchNumber == null ? '' : ' (batch ${info.batchNumber})'}');
   }
   final stock = index[scan.medicine.id];
   if (stock == null) return const ScanFeedback('Medicine not found in this store\'s stock.', ok: false);
@@ -324,6 +405,77 @@ class NotDeliveredScans extends ConsumerWidget {
         ]),
       ),
     );
+  }
+}
+
+/// Selling vs receiving, shown above [ScanTargetPicker] / [ReceivingSummary]
+/// on the phone — receiving a delivery must never look like selling to a
+/// customer, so it's a deliberate switch, not a side effect of what's scanned.
+class ScanModeToggle extends ConsumerWidget {
+  const ScanModeToggle({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(scanModeProvider);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.s),
+      child: SegmentedButton<ScanMode>(
+        segments: const [
+          ButtonSegment(value: ScanMode.selling, label: Text('Selling'), icon: Icon(Icons.point_of_sale_outlined)),
+          ButtonSegment(
+              value: ScanMode.receiving, label: Text('Receiving'), icon: Icon(Icons.inventory_2_outlined)),
+        ],
+        selected: {mode},
+        onSelectionChanged: (s) => ref.read(scanModeProvider.notifier).state = s.first,
+      ),
+    );
+  }
+}
+
+/// The draft purchase built up by scanning a delivery pack by pack — shown
+/// instead of [ScanTargetPicker] while receiving. Nothing here is stock yet;
+/// "Review & receive" hands it to the normal bill-review screen, where a
+/// pharmacist prices, checks and receives it like any other supplier bill.
+class ReceivingSummary extends ConsumerWidget {
+  const ReceivingSummary({super.key});
+
+  Future<void> _review(BuildContext context, WidgetRef ref) async {
+    final draft = ref.read(receivingDraftProvider);
+    try {
+      final scan = await ref.read(repositoryProvider)!.createBillScan(
+            draft: draft,
+            ocrText: 'Built on ${DeviceFeatures.label} from ${draft.lines.length} scanned pack'
+                '${draft.lines.length == 1 ? '' : 's'}.',
+          );
+      ref.read(receivingDraftProvider.notifier).clear();
+      if (!context.mounted) return;
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BillReviewScreen(scanId: scan.id)));
+    } catch (e) {
+      if (context.mounted) showMessage(context, friendlyError(e), error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final text = Theme.of(context).textTheme;
+    final draft = ref.watch(receivingDraftProvider);
+    final packs = draft.lines.fold<int>(0, (sum, l) => sum + l.packs);
+    if (draft.lines.isEmpty) {
+      return Text(
+        'Scan packs from a delivery — they build into one bill for a pharmacist to price-check and receive.',
+        style: text.bodySmall?.copyWith(color: AppColors.muted),
+      );
+    }
+    return Row(children: [
+      Expanded(
+        child: Text(
+          '${draft.lines.length} medicine${draft.lines.length == 1 ? '' : 's'} · $packs pack${packs == 1 ? '' : 's'} scanned',
+          style: text.bodyMedium,
+        ),
+      ),
+      const SizedBox(width: Space.s),
+      FilledButton.tonal(onPressed: () => _review(context, ref), child: const Text('Review & receive')),
+    ]);
   }
 }
 

@@ -258,6 +258,33 @@ class _BillReviewScreenState extends ConsumerState<BillReviewScreen> {
           error: true);
       return;
     }
+
+    // Same supplier + bill number already received from a different scan —
+    // most likely this bill was already entered once; let the pharmacist
+    // decide rather than silently double-counting the stock.
+    final invoice = draft.invoiceNumber.trim();
+    final supplier = draft.supplierName.trim();
+    if (invoice.isNotEmpty && supplier.isNotEmpty) {
+      final duplicate = (ref.read(purchasesProvider).valueOrNull ?? const [])
+          .where((p) =>
+              p.billScanId != widget.scanId &&
+              p.supplierInvoiceNumber.trim().toLowerCase() == invoice.toLowerCase() &&
+              p.supplierName.trim().toLowerCase() == supplier.toLowerCase())
+          .firstOrNull;
+      if (duplicate != null) {
+        final proceed = await confirmDialog(
+          context,
+          title: 'Already received?',
+          message: 'Bill $invoice from $supplier was already received on '
+              '${DateFormat('d MMM yyyy').format(duplicate.createdAt)}. Receiving this one too will add the '
+              'stock again — only continue if this is really a different bill.',
+          confirmLabel: 'Receive anyway',
+          danger: true,
+        );
+        if (!proceed || !mounted) return;
+      }
+    }
+
     final ok = await confirmDialog(
       context,
       title: 'Receive ${receipts.length} line${receipts.length == 1 ? '' : 's'}?',

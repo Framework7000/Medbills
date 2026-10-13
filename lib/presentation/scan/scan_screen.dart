@@ -45,6 +45,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     final cart = ref.watch(cartProvider);
     final target = ref.watch(scanTargetProvider);
     final phone = DeviceFeatures.isPhone;
+    final mode = phone ? ref.watch(scanModeProvider) : ScanMode.selling;
 
     Widget action({
       required IconData icon,
@@ -92,12 +93,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         action(
           icon: Icons.qr_code_scanner,
           title: 'Smart Scan',
-          subtitle: target == null
-              ? 'Point at a barcode to add it — or tap the camera button for a pack label or a supplier bill. '
-                  'It figures out which.'
-              : 'Scans go to ${target.name}\'s bill.',
+          subtitle: mode == ScanMode.receiving
+              ? 'Photograph each pack from the delivery — they build into one bill to review before stock is added.'
+              : target == null
+                  ? 'Point at a barcode to add it — or tap the camera button for a pack label or a supplier bill. '
+                      'It figures out which.'
+                  : 'Scans go to ${target.name}\'s bill.',
           onTap: () => openSmartScanner(context, ref),
-          extra: const ScanTargetPicker(),
+          extra: const SmartScanHeader(),
         ),
       if (!phone)
         action(

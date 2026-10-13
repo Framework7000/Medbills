@@ -161,12 +161,31 @@ landed — here's the honest split:
   and capture bill photos; only owner/pharmacist can receive stock or
   link barcodes) were re-checked and are already correct — no changes
   needed there.
+  **B** (remainder) — the phone's Smart Scan now has a Selling/Receiving
+  switch (`ScanModeToggle`). Selling is unchanged. Receiving: each
+  photographed pack merges into one running draft purchase
+  (`receivingDraftProvider`/`ReceivingDraftNotifier`, keyed by medicine +
+  batch) instead of going straight onto a customer's bill; "Review &
+  receive" saves it as a normal `BillScan` and opens the same
+  `BillReviewScreen` a photographed supplier bill uses, so pricing and
+  final receipt still need a pharmacist/owner — nothing is stock until
+  then. Scope note: only the camera-capture path (pack-label OCR) feeds
+  the draft; a plain barcode scan in Receiving mode still behaves as a
+  sale, since most Indian OTC packs' barcodes carry no batch/expiry to
+  receive against — `Gs1Parser` already reads batch/expiry off the GS1
+  DataMatrix ones, so wiring barcode scans into receiving too is a
+  reasonable next step, just not done here.
+  Also added: a warning (`bill_scan_screen.dart`'s `_receive()`) before
+  receiving a bill whose supplier + invoice number already matches an
+  existing `PurchaseRecord` from a *different* scan — catches the same
+  paper bill being photographed/received twice; the pharmacist can
+  still proceed, it's a warning, not a lock.
+  `capture_classifier.dart` renamed to the requested
+  `smart_scan_classifier.dart`, with its own test file
+  (`test/domain/smart_scan_classifier_test.dart`) — there were no
+  dedicated tests for it before despite the earlier note here, only
+  inline coverage of the other parsers in `scan_parsers_test.dart`.
 - **Not done**:
-  - **B** (remainder) — a Selling/Receiving mode switch on the phone;
-    "Receiving" building one draft purchase instead of hitting the bill
-    directly; warning before receiving a bill already received (same
-    supplier + bill number); renaming `capture_classifier.dart` to the
-    requested `smart_scan_classifier.dart` with its own dedicated test file.
   - **C** (remainder) — true drag-and-drop of a file onto the Mac/Windows
     window (only "Choose a file" via the picker exists).
   - **E** (remainder) — the receiving counter's "item flies into the bill,
