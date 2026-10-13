@@ -506,6 +506,151 @@ class GlobalCatalogueRepository {
         _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 3600),
     _m('med_165', 'Emeset MD 4 Tablet', 'Ondansetron 4mg', 'Cipla', 'Antiemetic',
         _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 3900),
+
+    // ---------------------------------------------------------------
+    // First aid / antiseptic
+    // ---------------------------------------------------------------
+    _m('med_166', 'Dettol Antiseptic Liquid', 'Chloroxylenol', 'Reckitt Benckiser', 'First Aid',
+        _hsnGeneral, 18.0, ScheduleType.otc, '100ml Bottle', 7500),
+    _m('med_167', 'Betadine Ointment', 'Povidone Iodine 5%', 'Win-Medicare', 'First Aid',
+        _hsnGeneral, 12.0, ScheduleType.otc, 'Tube 20g', 9500),
+    _m('med_168', 'Savlon Antiseptic Liquid', 'Chlorhexidine + Cetrimide', 'Johnson & Johnson',
+        'First Aid', _hsnGeneral, 18.0, ScheduleType.otc, '100ml Bottle', 8200),
+    _m('med_169', 'Burnol Cream', 'Povidone Iodine', 'Dr. Reddy\'s Laboratories', 'First Aid',
+        _hsnGeneral, 12.0, ScheduleType.otc, 'Tube 20g', 4500),
+    _m('med_170', 'Band-Aid Strips', 'Adhesive Bandages', 'Johnson & Johnson', 'First Aid',
+        _hsnGeneral, 12.0, ScheduleType.otc, 'Box of 20', 5500),
+
+    // ---------------------------------------------------------------
+    // More cold & flu
+    // ---------------------------------------------------------------
+    _m('med_171', 'Sinarest Tablet', 'Paracetamol + Phenylephrine + Chlorpheniramine',
+        'Centaur Pharmaceuticals', 'Respiratory', _hsnGeneral, 12.0, ScheduleType.otc,
+        'Strip of 10', 2600),
+    _m('med_172', 'Cheston Cold Tablet', 'Cetirizine + Phenylephrine + Paracetamol',
+        'Cipla', 'Respiratory', _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 10', 2800),
+    _m('med_173', 'D Cold Total Tablet', 'Paracetamol + Phenylephrine + Chlorpheniramine + Caffeine',
+        'Reckitt Benckiser', 'Respiratory', _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 10', 2900),
+    _m('med_174', 'Vicks Action 500 Tablet', 'Paracetamol + Phenylephrine + Caffeine',
+        'Procter & Gamble Health', 'Respiratory', _hsnGeneral, 12.0, ScheduleType.otc,
+        'Strip of 10', 2700),
+
+    // ---------------------------------------------------------------
+    // More gastro / antacid
+    // ---------------------------------------------------------------
+    _m('med_175', 'Gelusil Tablet', 'Magnesium Hydroxide + Aluminium Hydroxide + Simethicone',
+        'Sun Pharma', 'Gastro', _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 15', 3200),
+    _m('med_176', 'Gaviscon Suspension', 'Sodium Alginate + Sodium Bicarbonate', 'Reckitt Benckiser',
+        'Gastro', _hsnGeneral, 12.0, ScheduleType.otc, '200ml Bottle', 14500),
+    _m('med_177', 'Sompraz 40 Tablet', 'Esomeprazole 40mg', 'Sun Pharma', 'Gastro',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 15', 15800),
+    _m('med_178', 'Loperamide 2mg', 'Loperamide Hydrochloride', 'Cipla', 'Gastro',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Capsules Strip', 2100),
+    _m('med_179', 'Econorm Sachet', 'Saccharomyces Boulardii', 'Biocodex India', 'Gastro',
+        _hsnGeneral, 12.0, ScheduleType.otc, '6 Sachets Box', 10500),
+
+    // ---------------------------------------------------------------
+    // More women's health / contraceptives
+    // ---------------------------------------------------------------
+    _m('med_180', 'Unwanted-72', 'Levonorgestrel 1.5mg', 'Mankind Pharma', 'Women\'s Health',
+        _hsnGeneral, 12.0, ScheduleType.otc, '1 Tablet', 9200),
+    _m('med_181', 'Mala-D Tablet', 'Ethinylestradiol + Levonorgestrel', 'Government of India (HLL)',
+        'Women\'s Health', _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 28', 500),
+    _m('med_182', 'Duphaston Tablet', 'Dydrogesterone 10mg', 'Abbott India', 'Women\'s Health',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 29500),
+    _m('med_183', 'Pregnews Kit', 'Urine Pregnancy Test', 'Span Diagnostics', 'Women\'s Health',
+        _hsnGeneral, 12.0, ScheduleType.otc, '1 Kit', 4000),
+
+    // ---------------------------------------------------------------
+    // More pediatric
+    // ---------------------------------------------------------------
+    _m('med_184', 'Woodward\'s Gripe Water', 'Dill Oil', 'Pfizer Limited', 'Pediatric',
+        _hsnGeneral, 12.0, ScheduleType.otc, '130ml Bottle', 6500),
+    _m('med_185', 'Cremaffin Syrup', 'Liquid Paraffin + Milk of Magnesia', 'Abbott India',
+        'Pediatric', _hsnGeneral, 12.0, ScheduleType.otc, '225ml Bottle', 12500),
+    _m('med_186', 'Ondem MD 4 Syrup', 'Ondansetron 2mg/5ml', 'Alkem Laboratories', 'Pediatric',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '30ml Bottle', 4800),
+
+    // ---------------------------------------------------------------
+    // More diabetes
+    // ---------------------------------------------------------------
+    _m('med_187', 'Istamet Tablet', 'Sitagliptin 50mg + Metformin 500mg', 'MSD Pharmaceuticals',
+        'Diabetes', _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 24500),
+    _m('med_188', 'Januvia 100 Tablet', 'Sitagliptin Phosphate 100mg', 'MSD Pharmaceuticals',
+        'Diabetes', _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 7', 34500),
+    _m('med_189', 'Dapavis 10 Tablet', 'Dapagliflozin 10mg', 'Sun Pharma', 'Diabetes',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 18500),
+    _m('med_190', 'Lantus Solostar Injection', 'Insulin Glargine', 'Sanofi India', 'Diabetes',
+        _hsnGeneral, 5.0, ScheduleType.scheduleH, '1 Pen', 48500),
+
+    // ---------------------------------------------------------------
+    // More cardiac
+    // ---------------------------------------------------------------
+    _m('med_191', 'Dytor 10 Tablet', 'Torsemide 10mg', 'Cipla', 'Cardiac',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 15', 7200),
+    _m('med_192', 'Cardivas 6.25 Tablet', 'Carvedilol 6.25mg', 'Sun Pharma', 'Cardiac',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 3800),
+    _m('med_193', 'Met XL 25 Tablet', 'Metoprolol Succinate 25mg', 'Alkem Laboratories', 'Cardiac',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 15', 4500),
+    _m('med_194', 'Olmesar 20 Tablet', 'Olmesartan Medoxomil 20mg', 'Micro Labs', 'Cardiac',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 8200),
+    _m('med_195', 'Cilacar 10 Tablet', 'Cilnidipine 10mg', 'Sun Pharma', 'Cardiac',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 9500),
+
+    // ---------------------------------------------------------------
+    // More ophthalmology / ENT
+    // ---------------------------------------------------------------
+    _m('med_196', 'Moxicip Eye Drops', 'Moxifloxacin 0.5%', 'Cipla', 'Ophthalmology',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '5ml Bottle', 7800),
+    _m('med_197', 'Tobramycin Eye Drops', 'Tobramycin 0.3%', 'Alcon India', 'Ophthalmology',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '5ml Bottle', 6500),
+    _m('med_198', 'Nasivion Nasal Drops', 'Oxymetazoline', 'Abbott India', 'ENT',
+        _hsnGeneral, 12.0, ScheduleType.otc, '10ml Bottle', 6800),
+    _m('med_199', 'Sofradex Ear Drops', 'Framycetin + Gramicidin + Dexamethasone', 'Sanofi India',
+        'ENT', _hsnGeneral, 12.0, ScheduleType.scheduleH, '8ml Bottle', 9500),
+
+    // ---------------------------------------------------------------
+    // More antiparasitic / antibiotic
+    // ---------------------------------------------------------------
+    _m('med_200', 'Zentel 400 Tablet', 'Albendazole 400mg', 'GSK Pharmaceuticals', 'Antiparasitic',
+        _hsnGeneral, 12.0, ScheduleType.otc, '1 Tablet', 1800),
+    _m('med_201', 'Zithrox 500 Tablet', 'Azithromycin 500mg', 'Macleods Pharmaceuticals',
+        'Antibiotics', _hsnOtherAntibiotic, 12.0, ScheduleType.scheduleH, 'Strip of 3', 8200),
+    _m('med_202', 'Augmentin Duo Syrup', 'Amoxicillin + Clavulanic Acid (Paediatric)',
+        'GSK Pharmaceuticals', 'Antibiotics', _hsnPenicillin, 12.0, ScheduleType.scheduleH,
+        '30ml Bottle', 12500),
+
+    // ---------------------------------------------------------------
+    // Pain balm / topical
+    // ---------------------------------------------------------------
+    _m('med_203', 'Iodex Balm', 'Methyl Salicylate + Menthol', 'Mankind Pharma', 'Topical',
+        _hsnGeneral, 12.0, ScheduleType.otc, '40g Jar', 9500),
+    _m('med_204', 'Tiger Balm Red', 'Camphor + Menthol + Clove Oil', 'Tiger Balm (Haw Par)',
+        'Topical', _hsnGeneral, 12.0, ScheduleType.otc, '19g Jar', 11000),
+    _m('med_205', 'Zandu Balm', 'Camphor + Menthol + Eucalyptus Oil', 'Emami Limited', 'Topical',
+        _hsnGeneral, 12.0, ScheduleType.otc, '25ml Bottle', 8500),
+
+    // ---------------------------------------------------------------
+    // More thyroid / steroid
+    // ---------------------------------------------------------------
+    _m('med_206', 'Eltroxin 50mcg', 'Thyroxine Sodium 50mcg', 'GSK Pharmaceuticals', 'Supplements',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 100', 16800),
+    _m('med_207', 'Omnacortil 10 Tablet', 'Prednisolone 10mg', 'Macleods Pharmaceuticals',
+        'Neuro/Psychiatry', _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 2800),
+    _m('med_208', 'Wysolone 5 Tablet', 'Prednisolone 5mg', 'Pfizer Limited', 'Neuro/Psychiatry',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 20', 3200),
+
+    // ---------------------------------------------------------------
+    // Nutrition / supplements
+    // ---------------------------------------------------------------
+    _m('med_209', 'Ensure Diabetes Care Powder', 'Balanced Nutrition for Diabetics', 'Abbott India',
+        'Supplements', _hsnGeneral, 12.0, ScheduleType.otc, '400g Tin', 62000),
+    _m('med_210', 'Pediasure Powder', 'Pediatric Nutrition Supplement', 'Abbott India',
+        'Pediatric', _hsnGeneral, 12.0, ScheduleType.otc, '400g Tin', 58500),
+    _m('med_211', 'Protinex Powder', 'Protein Supplement', 'Danone India', 'Supplements',
+        _hsnGeneral, 12.0, ScheduleType.otc, '400g Jar', 42500),
+    _m('med_212', 'Horlicks Growth+ Powder', 'Malted Food with Multivitamins', 'HUL',
+        'Pediatric', _hsnGeneral, 12.0, ScheduleType.otc, '400g Jar', 25500),
   ];
 
   static Medicine _m(

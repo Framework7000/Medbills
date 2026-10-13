@@ -115,8 +115,8 @@ Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file, {
     return false;
   }
   if (!DeviceFeatures.textReading) {
-    showMessage(context, 'Bill photo saved. Text reading runs on the phone app — enter the lines here, '
-        'or photograph the bill with the phone and it will appear on every device.');
+    showMessage(context, 'Bill photo saved. Type each line below — searching finds it, or adds it as a new '
+        'medicine if it isn\'t in stock yet. (Photographing the bill with the phone instead reads it automatically.)');
   }
   await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BillReviewScreen(scanId: scan!.id)));
   return true;
@@ -529,10 +529,13 @@ class _BillReviewScreenState extends ConsumerState<BillReviewScreen> {
             TextButton.icon(onPressed: () => _editLine(draft.lines.length), icon: const Icon(PhosphorIconsRegular.plus), label: const Text('Add line')),
         ]),
         if (draft.lines.isEmpty)
-          const Card(
+          Card(
             child: Padding(
-              padding: EdgeInsets.all(Space.l),
-              child: Text('No item lines were read. Add them with "Add line", or retake the photo flat and in good light.'),
+              padding: const EdgeInsets.all(Space.l),
+              child: Text(DeviceFeatures.textReading
+                  ? 'No item lines were read. Add them with "Add line", or retake the photo flat and in good light.'
+                  : 'Type each item with "Add line" — search finds the medicine, or lets you add it new if it '
+                      'isn\'t in stock yet.'),
             ),
           ),
         for (final l in lines) Padding(padding: const EdgeInsets.only(bottom: Space.s), child: l),

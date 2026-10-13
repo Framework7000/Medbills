@@ -147,6 +147,20 @@ MICRO LABS LIMITED''');
       expect((line.packs, line.mrpPaise, line.ratePaise), (6, 8000, 5800));
     });
 
+    test('a weak, unconfident match is shown as a guess but never auto-trusted', () {
+      // "Digene" alone (its generic, "Magaldrate + Simethicone", doesn't
+      // appear here, and it has no strength number to confirm against)
+      // scores above the matcher's floor but below its confidence bar —
+      // the line must still parse, with the guess as a starting point for
+      // the pharmacist to confirm or correct, not silently assumed right.
+      final page = OcrPage.fromText('1  DIGENE GEL  1  B123  05/27  2  50.00  95.00');
+      final line = SupplierBillParser.parse(page, medicines).lines.single;
+      expect(line.medicineId, isNull);
+      expect(line.medicineName, 'Digene Gel');
+      expect(line.batchNumber, 'B123');
+      expect((line.packs, line.mrpPaise, line.ratePaise), (2, 9500, 5000));
+    });
+
     test('reads a bill where the batch sits right after the item, not next to the expiry', () {
       // A real cash-memo layout: Item Name, Unit, Batch, Qty+free, MRP,
       // Rate, Amount, Exp — the batch is far from the expiry, with four

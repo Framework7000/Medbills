@@ -96,11 +96,17 @@ class SupplierBillParser {
     final expiryMatch = RegExp(monthYearPattern).firstMatch(clean);
     final expiry = expiryMatch == null ? null : parseMonthYear(expiryMatch.group(0)!);
     final match = MedicineMatcher.match(clean, medicines);
-    final medicine = match.best?.medicine;
+    // A weak/ambiguous match is still useful for finding the batch number and
+    // as a starting guess, but auto-filling it as THE medicine when the
+    // matcher itself isn't sure would silently show the wrong product —
+    // only a confident match is trusted; anything else stays unmatched for
+    // the pharmacist to confirm, same as a brand-new medicine would be.
+    final guess = match.best?.medicine;
+    final medicine = match.isConfident ? guess : null;
 
     final before = expiryMatch == null ? clean : clean.substring(0, expiryMatch.start);
 
-    final nameTokens = medicine == null ? <String>{} : normaliseOcr(medicine.name).split(' ').toSet();
+    final nameTokens = guess == null ? <String>{} : normaliseOcr(guess.name).split(' ').toSet();
     final beforeTokens = before.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
     String batch = '';
     // Most bills print the batch just before the expiry — check there first.
@@ -144,8 +150,9 @@ class SupplierBillParser {
         .map((m) => m.group(1)!)
         .toList();
 
-    // An item row needs a medicine (or at least batch + expiry) and a quantity.
-    final looksLikeItem = (medicine != null && (expiry != null || batch.isNotEmpty)) ||
+    // An item row needs a medicine guess (confident or not — the pharmacist
+    // confirms it either way) or at least batch + expiry, and a quantity.
+    final looksLikeItem = (guess != null && (expiry != null || batch.isNotEmpty)) ||
         (expiry != null && batch.isNotEmpty);
     if (!looksLikeItem || numbers.isEmpty) return null;
 
@@ -168,7 +175,7 @@ class SupplierBillParser {
     return BillDraftLine(
       rawText: row,
       medicineId: medicine?.id,
-      medicineName: medicine?.name ?? _leadingWords(clean),
+      medicineName: medicine?.name ?? guess?.name ?? _leadingWords(clean),
       batchNumber: batch,
       expiryMonth: expiry?.month,
       expiryYear: expiry?.year,
