@@ -279,6 +279,233 @@ class GlobalCatalogueRepository {
     _m('med_094', 'Ultracet Tablet', 'Tramadol 37.5mg + Paracetamol 325mg',
         'Janssen (Johnson & Johnson)', 'Neuro/Psychiatry', _hsnGeneral, 12.0,
         ScheduleType.scheduleH1, 'Strip of 15', 21500),
+
+    // ---------------------------------------------------------------
+    // More analgesics
+    // ---------------------------------------------------------------
+    _m('med_095', 'Aceclofenac 100mg', 'Aceclofenac', 'Ipca Laboratories', 'Analgesics',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 3200),
+    _m('med_096', 'Nise Tablet', 'Nimesulide 100mg', 'Dr. Reddy\'s Laboratories', 'Analgesics',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 3100),
+    _m('med_097', 'Flexon Tablet', 'Ibuprofen 400mg + Paracetamol 325mg', 'Reckitt Benckiser',
+        'Analgesics', _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 20', 4600),
+    _m('med_098', 'Voveran 50mg', 'Diclofenac Sodium 50mg', 'Novartis India', 'Analgesics',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 20', 5600),
+    _m('med_099', 'Saridon Tablet', 'Paracetamol + Propyphenazone + Caffeine',
+        'Piramal Enterprises', 'Analgesics', _hsnGeneral, 12.0, ScheduleType.otc,
+        'Strip of 10', 2800),
+    _m('med_100', 'Tramadol 50mg', 'Tramadol Hydrochloride', 'Sun Pharma', 'Analgesics',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH1, '10 Capsules Strip', 4200),
+
+    // ---------------------------------------------------------------
+    // More antibiotics
+    // ---------------------------------------------------------------
+    _m('med_101', 'Cifran 500 Tablet', 'Ciprofloxacin 500mg', 'Sun Pharma', 'Antibiotics',
+        _hsnOtherAntibiotic, 12.0, ScheduleType.scheduleH, 'Strip of 10', 8400),
+    _m('med_102', 'Levoflox 500 Tablet', 'Levofloxacin 500mg', 'Cipla', 'Antibiotics',
+        _hsnOtherAntibiotic, 12.0, ScheduleType.scheduleH, 'Strip of 5', 9500),
+    _m('med_103', 'Norflox-TZ Tablet', 'Norfloxacin 400mg + Tinidazole 600mg', 'Cipla',
+        'Antibiotics', _hsnOtherAntibiotic, 12.0, ScheduleType.scheduleH, 'Strip of 10', 9800),
+    _m('med_104', 'O2 Tablet', 'Ofloxacin 200mg + Ornidazole 500mg', 'Alkem Laboratories',
+        'Antibiotics', _hsnOtherAntibiotic, 12.0, ScheduleType.scheduleH, 'Strip of 10', 8200),
+    _m('med_105', 'Zifi 200 Tablet', 'Cefixime 200mg', 'FDC Limited', 'Antibiotics',
+        _hsnOtherAntibiotic, 12.0, ScheduleType.scheduleH, 'Strip of 10', 10600),
+
+    // ---------------------------------------------------------------
+    // More gastro
+    // ---------------------------------------------------------------
+    _m('med_106', 'Sucralfate 1g Tablet', 'Sucralfate', 'Cipla', 'Gastro',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 3600),
+    _m('med_107', 'Domperidone 10mg', 'Domperidone', 'Sun Pharma', 'Gastro',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 2200),
+    _m('med_108', 'Esomeprazole 40mg', 'Esomeprazole', 'Dr. Reddy\'s Laboratories', 'Gastro',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 8600),
+    _m('med_109', 'Dulcolax Tablet', 'Bisacodyl 5mg', 'Sanofi India', 'Gastro',
+        _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 10', 2100),
+    _m('med_110', 'Isabgol Husk', 'Psyllium Husk', 'Dabur India', 'Gastro',
+        _hsnGeneral, 12.0, ScheduleType.otc, '100g Jar', 9000),
+
+    // ---------------------------------------------------------------
+    // More diabetes
+    // ---------------------------------------------------------------
+    _m('med_111', 'Voglibose 0.2mg', 'Voglibose', 'USV Private Limited', 'Diabetes',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 4800),
+    _m('med_112', 'Pioglitazone 15mg', 'Pioglitazone', 'Sun Pharma', 'Diabetes',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 3900),
+    _m('med_113', 'Human Actrapid Insulin', 'Human Insulin (Soluble)', 'Novo Nordisk India',
+        'Diabetes', _hsnGeneral, 5.0, ScheduleType.scheduleH, '10ml Vial', 18200),
+    _m('med_114', 'Glucerna Powder', 'Diabetes-Specific Nutrition', 'Abbott India', 'Diabetes',
+        _hsnGeneral, 12.0, ScheduleType.otc, '400g Tin', 65000),
+
+    // ---------------------------------------------------------------
+    // More cardiac
+    // ---------------------------------------------------------------
+    _m('med_115', 'Metoprolol 50mg', 'Metoprolol Succinate', 'Sun Pharma', 'Cardiac',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 4200),
+    _m('med_116', 'Losartan 50mg', 'Losartan Potassium', 'Cipla', 'Cardiac',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 3800),
+    _m('med_117', 'Ramipril 5mg', 'Ramipril', 'Sanofi India', 'Cardiac',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 4500),
+    _m('med_118', 'Nitrocontin 2.6mg', 'Nitroglycerin', 'USV Private Limited', 'Cardiac',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 3200),
+    _m('med_119', 'Digoxin 0.25mg', 'Digoxin', 'GSK Pharmaceuticals', 'Cardiac',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 1800),
+    _m('med_120', 'Ecosprin AV 75', 'Aspirin 75mg + Atorvastatin 10mg', 'USV Private Limited',
+        'Cardiac', _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 8700),
+
+    // ---------------------------------------------------------------
+    // More allergy
+    // ---------------------------------------------------------------
+    _m('med_121', 'Montek 10 Tablet', 'Montelukast 10mg', 'Sun Pharma', 'Allergy',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 11500),
+    _m('med_122', 'Atarax 25mg', 'Hydroxyzine', 'Pfizer Limited', 'Allergy',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 3200),
+    _m('med_123', 'Rhinocort Nasal Spray', 'Budesonide Nasal Spray', 'AstraZeneca Pharma India',
+        'Allergy', _hsnGeneral, 12.0, ScheduleType.scheduleH, '10ml Bottle', 18500),
+
+    // ---------------------------------------------------------------
+    // More supplements
+    // ---------------------------------------------------------------
+    _m('med_124', 'Neurobion Forte', 'Vitamin B1 + B6 + B12', 'Procter & Gamble Health',
+        'Supplements', _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 30', 2600),
+    _m('med_125', 'Revital H Capsule', 'Multivitamin + Ginseng', 'Sun Pharma Consumer',
+        'Supplements', _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 20', 24500),
+    _m('med_126', 'Zincovit Tablet', 'Zinc + Multivitamins', 'Apex Laboratories',
+        'Supplements', _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 15', 3900),
+    _m('med_127', 'Evion 400 Capsule', 'Vitamin E 400mg', 'Merck Limited', 'Supplements',
+        _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 10', 3500),
+    _m('med_128', 'Dexorange Syrup', 'Iron + Folic Acid + Vitamin B12',
+        'Franco-Indian Pharmaceuticals', 'Supplements', _hsnGeneral, 12.0, ScheduleType.otc,
+        '200ml Bottle', 13500),
+
+    // ---------------------------------------------------------------
+    // More respiratory
+    // ---------------------------------------------------------------
+    _m('med_129', 'Grilinctus Syrup', 'Dextromethorphan + Chlorpheniramine',
+        'Franco-Indian Pharmaceuticals', 'Respiratory', _hsnGeneral, 12.0, ScheduleType.otc,
+        '100ml Bottle', 8500),
+    _m('med_130', 'Alex Syrup', 'Dextromethorphan + Phenylephrine + Chlorpheniramine',
+        'Glenmark Pharmaceuticals', 'Respiratory', _hsnGeneral, 12.0, ScheduleType.otc,
+        '100ml Bottle', 8900),
+    _m('med_131', 'Montair-FX Tablet', 'Montelukast + Fexofenadine', 'Cipla', 'Respiratory',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 16800),
+    _m('med_132', 'Budecort Respules', 'Budesonide 0.5mg', 'Cipla', 'Respiratory',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Box of 5', 32500),
+
+    // ---------------------------------------------------------------
+    // More dermatology / topical
+    // ---------------------------------------------------------------
+    _m('med_133', 'Fucidin Cream', 'Fusidic Acid', 'Leo Pharma', 'Dermatology',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Tube 5g', 2600),
+    _m('med_134', 'Panderm Plus Cream', 'Betamethasone + Clotrimazole + Neomycin',
+        'Johnson & Johnson', 'Dermatology', _hsnGeneral, 12.0, ScheduleType.scheduleH,
+        'Tube 15g', 4800),
+    _m('med_135', 'Cetaphil Gentle Cleanser', 'Moisturizing Cleanser', 'Galderma India',
+        'Dermatology', _hsnGeneral, 12.0, ScheduleType.otc, '125ml Bottle', 42500),
+    _m('med_136', 'Itch Guard Cream', 'Clotrimazole + Beclomethasone', 'Reckitt Benckiser',
+        'Dermatology', _hsnGeneral, 12.0, ScheduleType.otc, 'Tube 15g', 6500),
+    _m('med_137', 'T-Bact Ointment', 'Mupirocin 2%', 'GSK Pharmaceuticals', 'Dermatology',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Tube 5g', 9500),
+
+    // ---------------------------------------------------------------
+    // More antifungal
+    // ---------------------------------------------------------------
+    _m('med_138', 'Terbinafine 250mg', 'Terbinafine Hydrochloride', 'Novartis India',
+        'Antifungal', _hsnOtherAntibiotic, 12.0, ScheduleType.scheduleH, 'Strip of 7', 8500),
+    _m('med_139', 'Ketoconazole Shampoo', 'Ketoconazole 2%', 'Johnson & Johnson',
+        'Antifungal', _hsnOtherAntibiotic, 12.0, ScheduleType.scheduleH, '60ml Bottle', 16500),
+
+    // ---------------------------------------------------------------
+    // More ophthalmology
+    // ---------------------------------------------------------------
+    _m('med_140', 'Ciplox Eye Drops', 'Ciprofloxacin 0.3%', 'Cipla', 'Ophthalmology',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10ml Bottle', 2800),
+    _m('med_141', 'Genteal Eye Gel', 'Hypromellose', 'Alcon India', 'Ophthalmology',
+        _hsnGeneral, 12.0, ScheduleType.otc, '10g Tube', 15500),
+    _m('med_142', 'Combigan Eye Drops', 'Brimonidine + Timolol', 'Allergan India',
+        'Ophthalmology', _hsnGeneral, 12.0, ScheduleType.scheduleH, '5ml Bottle', 42500),
+
+    // ---------------------------------------------------------------
+    // ENT
+    // ---------------------------------------------------------------
+    _m('med_143', 'Otrivin Nasal Drops', 'Xylometazoline', 'GSK Pharmaceuticals', 'ENT',
+        _hsnGeneral, 12.0, ScheduleType.otc, '10ml Bottle', 7500),
+    _m('med_144', 'Candibiotic Ear Drops',
+        'Clotrimazole + Lidocaine + Beclomethasone + Chloramphenicol', 'Wockhardt', 'ENT',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '6ml Bottle', 8900),
+    _m('med_145', 'Waxolve Ear Drops', 'Turpentine Oil + Chlorobutanol',
+        'Wallace Pharmaceuticals', 'ENT', _hsnGeneral, 12.0, ScheduleType.otc,
+        '10ml Bottle', 6200),
+
+    // ---------------------------------------------------------------
+    // More pediatric
+    // ---------------------------------------------------------------
+    _m('med_146', 'T-Minic Drops', 'Phenylephrine + Chlorpheniramine', 'Pfizer Limited',
+        'Pediatric', _hsnGeneral, 12.0, ScheduleType.otc, '15ml Bottle', 5800),
+    _m('med_147', 'Polybion Syrup', 'Vitamin B Complex', 'Merck Limited', 'Pediatric',
+        _hsnGeneral, 12.0, ScheduleType.otc, '200ml Bottle', 8900),
+    _m('med_148', 'Crocin Infant Drops', 'Paracetamol 100mg/ml', 'GSK Pharmaceuticals',
+        'Pediatric', _hsnGeneral, 12.0, ScheduleType.otc, '15ml Bottle', 3800),
+
+    // ---------------------------------------------------------------
+    // More women's health
+    // ---------------------------------------------------------------
+    _m('med_149', 'Susten 200 Capsule', 'Progesterone 200mg', 'Sun Pharma', 'Women\'s Health',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 9800),
+    _m('med_150', 'Folinine Tablet', 'Folic Acid 5mg', 'Alkem Laboratories', 'Women\'s Health',
+        _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 20', 1800),
+    _m('med_151', 'Fertab-M Tablet', 'Folic Acid + Methylcobalamin', 'Mankind Pharma',
+        'Women\'s Health', _hsnGeneral, 12.0, ScheduleType.otc, 'Strip of 15', 4600),
+
+    // ---------------------------------------------------------------
+    // More neuro/psychiatry — Schedule H / H1
+    // ---------------------------------------------------------------
+    _m('med_152', 'Amitriptyline 25mg', 'Amitriptyline Hydrochloride', 'Sun Pharma',
+        'Neuro/Psychiatry', _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 1900),
+    _m('med_153', 'Pregabalin 75mg', 'Pregabalin', 'Pfizer Limited', 'Neuro/Psychiatry',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH1, 'Strip of 10', 11800),
+    _m('med_154', 'Risperidone 2mg', 'Risperidone', 'Sun Pharma', 'Neuro/Psychiatry',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 4800),
+    _m('med_155', 'Divalproex 500mg (Encorate)', 'Sodium Valproate', 'Sun Pharma',
+        'Neuro/Psychiatry', _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 8500),
+
+    // ---------------------------------------------------------------
+    // Urology
+    // ---------------------------------------------------------------
+    _m('med_156', 'Tamsulosin 0.4mg', 'Tamsulosin Hydrochloride', 'Cipla', 'Urology',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Capsules Strip', 5200),
+    _m('med_157', 'Veltam Plus Tablet', 'Tamsulosin + Dutasteride', 'Mankind Pharma', 'Urology',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 18500),
+    _m('med_158', 'Cital Syrup', 'Potassium Citrate', 'Blue Cross Laboratories', 'Urology',
+        _hsnGeneral, 12.0, ScheduleType.otc, '200ml Bottle', 8900),
+
+    // ---------------------------------------------------------------
+    // Muscle relaxant / orthopedic
+    // ---------------------------------------------------------------
+    _m('med_159', 'Myospaz Tablet', 'Thiocolchicoside 4mg + Aceclofenac 100mg',
+        'Blue Cross Laboratories', 'Orthopedic', _hsnGeneral, 12.0, ScheduleType.scheduleH,
+        'Strip of 10', 7500),
+    _m('med_160', 'Flexura-MR Tablet', 'Chlorzoxazone + Diclofenac + Paracetamol',
+        'Mankind Pharma', 'Orthopedic', _hsnGeneral, 12.0, ScheduleType.scheduleH,
+        'Strip of 10', 6800),
+    _m('med_161', 'Calcirol Sachet', 'Cholecalciferol 60000 IU', 'Cadila Pharmaceuticals',
+        'Orthopedic', _hsnGeneral, 12.0, ScheduleType.otc, '4 Sachets Box', 9200),
+
+    // ---------------------------------------------------------------
+    // Antiparasitic
+    // ---------------------------------------------------------------
+    _m('med_162', 'Albendazole 400mg', 'Albendazole', 'GSK Pharmaceuticals', 'Antiparasitic',
+        _hsnGeneral, 12.0, ScheduleType.otc, '1 Tablet', 1500),
+    _m('med_163', 'Ivermectin 12mg', 'Ivermectin', 'Mankind Pharma', 'Antiparasitic',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 4', 4200),
+
+    // ---------------------------------------------------------------
+    // Antiemetic
+    // ---------------------------------------------------------------
+    _m('med_164', 'Ondansetron 4mg', 'Ondansetron', 'Sun Pharma', 'Antiemetic',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, '10 Tablets Strip', 3600),
+    _m('med_165', 'Emeset MD 4 Tablet', 'Ondansetron 4mg', 'Cipla', 'Antiemetic',
+        _hsnGeneral, 12.0, ScheduleType.scheduleH, 'Strip of 10', 3900),
   ];
 
   static Medicine _m(
