@@ -195,9 +195,18 @@ landed — here's the honest split:
   its new value (`CountUpAmount` in `widgets/common.dart`) instead of
   jumping. This is on top of the animated arrival toast that already
   existed — that's unchanged.
+  **C** (remainder) — a supplier bill photo can now be dragged straight
+  onto the Purchases window on Mac/Windows (`desktop_drop` package,
+  `SupplierBillDropZone` in `bill_scan_screen.dart`, wrapping
+  `purchases_screen.dart`'s body), with a highlighted drop overlay while
+  dragging over it and a rejection message for a non-image file. Reuses
+  `receiveBillPhoto` exactly as "Choose a file" already did, so it goes
+  through the same OCR/review pipeline — only the entry point is new.
+  No macOS entitlement changes were needed; drag-and-drop is already
+  covered by the existing `com.apple.security.files.user-selected.read-write`
+  sandbox entitlement. Does nothing on a phone (no OS drag source to
+  drop from there) — `DeviceFeatures.isPhone` gates it off.
 - **Not done**:
-  - **C** (remainder) — true drag-and-drop of a file onto the Mac/Windows
-    window (only "Choose a file" via the picker exists).
   - **F** — replacing Material icons with Phosphor icons app-wide, denser
     Mac/Windows spacing, cutting helper text. Not started — this is a large,
     mechanical, many-file change.

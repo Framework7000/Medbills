@@ -31,33 +31,35 @@ class PurchasesScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Purchases (stock in)')),
-      body: context.isWide
-          ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              SizedBox(width: 460, child: SingleChildScrollView(padding: const EdgeInsets.all(Space.l), child: form)),
-              const VerticalDivider(width: 1),
-              Expanded(
-                child: DefaultTabController(
-                  length: 2,
-                  child: Column(children: [
-                    const TabBar(tabs: [Tab(text: 'Received stock'), Tab(text: 'Scanned bills')]),
-                    Expanded(child: TabBarView(children: [history, const BillScanList()])),
-                  ]),
-                ),
-              ),
-            ])
-          : DefaultTabController(
-              length: 3,
-              child: Column(children: [
-                const TabBar(tabs: [Tab(text: 'Receive'), Tab(text: 'Bills'), Tab(text: 'History')]),
+      body: SupplierBillDropZone(
+        child: context.isWide
+            ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                SizedBox(width: 460, child: SingleChildScrollView(padding: const EdgeInsets.all(Space.l), child: form)),
+                const VerticalDivider(width: 1),
                 Expanded(
-                  child: TabBarView(children: [
-                    SingleChildScrollView(padding: const EdgeInsets.all(Space.l), child: form),
-                    const BillScanList(),
-                    history,
-                  ]),
+                  child: DefaultTabController(
+                    length: 2,
+                    child: Column(children: [
+                      const TabBar(tabs: [Tab(text: 'Received stock'), Tab(text: 'Scanned bills')]),
+                      Expanded(child: TabBarView(children: [history, const BillScanList()])),
+                    ]),
+                  ),
                 ),
-              ]),
-            ),
+              ])
+            : DefaultTabController(
+                length: 3,
+                child: Column(children: [
+                  const TabBar(tabs: [Tab(text: 'Receive'), Tab(text: 'Bills'), Tab(text: 'History')]),
+                  Expanded(
+                    child: TabBarView(children: [
+                      SingleChildScrollView(padding: const EdgeInsets.all(Space.l), child: form),
+                      const BillScanList(),
+                      history,
+                    ]),
+                  ),
+                ]),
+              ),
+      ),
     );
   }
 }

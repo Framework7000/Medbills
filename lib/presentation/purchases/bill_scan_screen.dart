@@ -1,3 +1,4 @@
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -118,6 +119,70 @@ Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file, {
   }
   await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BillReviewScreen(scanId: scan!.id)));
   return true;
+}
+
+const _imageExtensions = ['.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp'];
+
+/// Lets a supplier bill photo be dropped straight onto the Mac/Windows
+/// window, not just picked through a file dialog — wraps [child] so the
+/// rest of the screen is unaffected. A phone has no OS drag source to drop
+/// from, so this only does anything on desktop.
+class SupplierBillDropZone extends ConsumerStatefulWidget {
+  const SupplierBillDropZone({super.key, required this.child});
+  final Widget child;
+
+  @override
+  ConsumerState<SupplierBillDropZone> createState() => _SupplierBillDropZoneState();
+}
+
+class _SupplierBillDropZoneState extends ConsumerState<SupplierBillDropZone> {
+  bool _hovering = false;
+  bool _busy = false;
+
+  Future<void> _drop(DropDoneDetails details) async {
+    setState(() => _hovering = false);
+    if (_busy || details.files.isEmpty) return;
+    final file = details.files.first;
+    final lower = file.name.toLowerCase();
+    if (!_imageExtensions.any(lower.endsWith)) {
+      showMessage(context, 'Drop a photo of the bill (JPG, PNG or HEIC) — "${file.name}" isn\'t one.', error: true);
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await receiveBillPhoto(context, ref, file);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (DeviceFeatures.isPhone) return widget.child;
+    return DropTarget(
+      onDragEntered: (_) => setState(() => _hovering = true),
+      onDragExited: (_) => setState(() => _hovering = false),
+      onDragDone: _drop,
+      child: Stack(children: [
+        widget.child,
+        if (_hovering)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Container(
+                color: AppColors.primaryContainer.withValues(alpha: 0.85),
+                child: const Center(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.file_download_outlined, size: 40, color: AppColors.primary),
+                    SizedBox(height: Space.s),
+                    Text('Drop to add as a supplier bill', style: TextStyle(color: AppColors.primary)),
+                  ]),
+                ),
+              ),
+            ),
+          ),
+      ]),
+    );
+  }
 }
 
 /// Recently photographed bills, newest first.
