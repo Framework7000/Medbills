@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../data/pharmacy_repository.dart';
 import '../../domain/models/customer_credit.dart';
 import '../../domain/models/sale_invoice.dart';
 import '../../domain/models/scan_link.dart';
@@ -39,6 +40,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
 
   // Phone → this counter link.
   ScanStation? _station;
+  PharmacyRepository? _stationRepo;
   StreamSubscription<List<ScanEvent>>? _scanSub;
   Timer? _heartbeat;
   final _handledScans = <String>{};
@@ -104,6 +106,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
     }
     if (!mounted) return;
     setState(() => _station = station);
+    _stationRepo = repo;
     _scanSub = repo.watchScansFor(station.id).listen(_onRemoteScans);
     // Keep the counter listed on phones while it stays open.
     _heartbeat = Timer.periodic(const Duration(hours: 1), (_) {
@@ -124,7 +127,10 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
     _heartbeat = null;
     if (station == null) return;
     _station = null;
-    final repo = ref.read(repositoryProvider);
+    // Read from the field saved when the station started, not from `ref` —
+    // this runs from dispose() too, where the widget's ref is already gone.
+    final repo = _stationRepo;
+    _stationRepo = null;
     if (repo != null) {
       unawaited(repo
           .saveStation(ScanStation(
@@ -139,30 +145,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
     if (notify && mounted) setState(() {});
   }
 
-  Future<String?> _askCounterName() {
-    final controller = TextEditingController(text: '${DeviceFeatures.label} counter');
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Receive scans from phones'),
-        content: DialogBody(
-          child: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'Counter name', helperText: 'Shown on the phone, e.g. "Counter 1"'),
-            onSubmitted: (v) => Navigator.pop(context, v.trim().isEmpty ? null : v.trim()),
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim().isEmpty ? null : controller.text.trim()),
-            child: const Text('Start'),
-          ),
-        ],
-      ),
-    ).whenComplete(controller.dispose);
-  }
+  Future<String?> _askCounterName() => showDialog<String>(context: context, builder: (_) => const _CounterNameDialog());
 
   /// Firestore pushes a new scan event the instant the phone sends one —
   /// this fires within a moment of that, for every scan, every time. Each
@@ -830,6 +813,48 @@ class _CreditCustomerPicker extends ConsumerWidget {
         label: const Text('Choose customer'),
       ),
     ]);
+  }
+}
+
+/// Owns its controller for its own real lifetime, not the dialog route's
+/// pop future — that resolves before the exit transition finishes, which
+/// disposed the controller while the (still-animating-out) field used it.
+class _CounterNameDialog extends StatefulWidget {
+  const _CounterNameDialog();
+
+  @override
+  State<_CounterNameDialog> createState() => _CounterNameDialogState();
+}
+
+class _CounterNameDialogState extends State<_CounterNameDialog> {
+  late final _controller = TextEditingController(text: '${DeviceFeatures.label} counter');
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Receive scans from phones'),
+      content: DialogBody(
+        child: TextField(
+          controller: _controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Counter name', helperText: 'Shown on the phone, e.g. "Counter 1"'),
+          onSubmitted: (v) => Navigator.pop(context, v.trim().isEmpty ? null : v.trim()),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text.trim().isEmpty ? null : _controller.text.trim()),
+          child: const Text('Start'),
+        ),
+      ],
+    );
   }
 }
 

@@ -517,6 +517,12 @@ class FirestorePharmacyRepository implements PharmacyRepository {
       .map((q) => q.docs.map((d) => ScanEvent.fromMap(_read(d))).toList());
 
   @override
+  Stream<List<ScanEvent>> watchSentScans(String uid) => _scanEvents
+      .where('createdBy', isEqualTo: uid)
+      .snapshots()
+      .map((q) => q.docs.map((d) => ScanEvent.fromMap(_read(d))).toList());
+
+  @override
   Future<void> markScanDone(String eventId) => _scanEvents.doc(eventId).update({'status': 'done'});
 
   @override

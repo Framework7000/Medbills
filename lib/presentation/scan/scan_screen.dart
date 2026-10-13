@@ -154,6 +154,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                     style: text.bodyMedium,
                   ),
                 ),
+              const Padding(padding: EdgeInsets.only(bottom: Space.m), child: NotDeliveredScans()),
               for (final c in cards) Padding(padding: const EdgeInsets.only(bottom: Space.m), child: c),
             ],
           ),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -10,10 +12,12 @@ import '../../domain/services/capture_classifier.dart';
 import '../../domain/services/pack_units.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
+import '../../platform/scan_target_memory.dart';
 import '../../platform/text_reader.dart';
 import '../../state/providers.dart';
 import '../purchases/bill_scan_screen.dart' show captureSupplierBill, receiveBillPhoto;
 import '../purchases/medicine_picker.dart';
+import '../theme.dart';
 import '../widgets/common.dart';
 import 'barcode_scanner_screen.dart';
 import 'scan_flows.dart';
@@ -197,26 +201,128 @@ Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref) asy
   return feedback;
 }
 
-class ScanTargetPicker extends ConsumerWidget {
+/// Where scanned items go: this device's own bill, or a specific counter.
+/// Remembers the choice across restarts and shows "Counter offline" if the
+/// remembered one isn't listening right now, instead of silently falling
+/// back to this device.
+class ScanTargetPicker extends ConsumerStatefulWidget {
   const ScanTargetPicker({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ScanTargetPicker> createState() => _ScanTargetPickerState();
+}
+
+class _ScanTargetPickerState extends ConsumerState<ScanTargetPicker> {
+  (String, String)? _remembered;
+  bool _applied = false;
+
+  @override
+  void initState() {
+    super.initState();
+    ScanTargetMemory.load().then((saved) {
+      if (mounted) setState(() => _remembered = saved);
+    });
+  }
+
+  void _choose(ScanStation? station) {
+    _applied = true;
+    ref.read(scanTargetProvider.notifier).state = station;
+    unawaited(ScanTargetMemory.save(station?.id ?? '', station?.name ?? ''));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
     final now = DateTime.now();
     final stations = (ref.watch(stationsProvider).valueOrNull ?? const <ScanStation>[])
         .where((s) => s.isAvailableAt(now))
         .toList();
-    if (stations.isEmpty) return const SizedBox.shrink();
     final target = ref.watch(scanTargetProvider);
-    return DropdownButtonFormField<String>(
-      initialValue: stations.any((s) => s.id == target?.id) ? target!.id : '',
-      isExpanded: true,
-      decoration: const InputDecoration(labelText: 'Add scanned items to'),
-      items: [
-        const DropdownMenuItem(value: '', child: Text('The bill on this device')),
-        for (final s in stations) DropdownMenuItem(value: s.id, child: Text('${s.name} (counter)')),
-      ],
-      onChanged: (id) => ref.read(scanTargetProvider.notifier).state = stations.where((s) => s.id == id).firstOrNull,
+    final remembered = _remembered;
+
+    String? offlineName;
+    if (!_applied && target == null && remembered != null && remembered.$1.isNotEmpty) {
+      final match = stations.where((s) => s.id == remembered.$1).firstOrNull;
+      if (match != null) {
+        _applied = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) ref.read(scanTargetProvider.notifier).state = match;
+        });
+      } else {
+        offlineName = remembered.$2;
+      }
+    }
+
+    final offlineNotice = offlineName == null
+        ? null
+        : Padding(
+            padding: const EdgeInsets.only(bottom: Space.s),
+            child: Row(children: [
+              const Icon(Icons.wifi_off, size: 16, color: AppColors.muted),
+              const SizedBox(width: Space.xs),
+              Expanded(
+                child: Text('Counter offline: $offlineName',
+                    style: text.bodySmall?.copyWith(color: AppColors.muted))),
+            ]),
+          );
+
+    if (stations.isEmpty) return offlineNotice ?? const SizedBox.shrink();
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      ?offlineNotice,
+      DropdownButtonFormField<String>(
+        initialValue: stations.any((s) => s.id == target?.id) ? target!.id : '',
+        isExpanded: true,
+        decoration: const InputDecoration(labelText: 'Add scanned items to'),
+        items: [
+          const DropdownMenuItem(value: '', child: Text('The bill on this device')),
+          for (final s in stations) DropdownMenuItem(value: s.id, child: Text('${s.name} (counter)')),
+        ],
+        onChanged: (id) => _choose(stations.where((s) => s.id == id).firstOrNull),
+      ),
+    ]);
+  }
+}
+
+/// Scans this device sent that no counter picked up within 10 minutes —
+/// shown on the phone so a missed scan is never just silently forgotten.
+class NotDeliveredScans extends ConsumerWidget {
+  const NotDeliveredScans({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!DeviceFeatures.isPhone) return const SizedBox.shrink();
+    final text = Theme.of(context).textTheme;
+    final now = DateTime.now();
+    final stale = (ref.watch(sentScansProvider).valueOrNull ?? const <ScanEvent>[])
+        .where((e) => e.status == ScanEventStatus.pending && now.difference(e.scannedAt) > const Duration(minutes: 10))
+        .toList()
+      ..sort((a, b) => b.scannedAt.compareTo(a.scannedAt));
+    if (stale.isEmpty) return const SizedBox.shrink();
+
+    return Card(
+      color: AppColors.warningContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(Space.l),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.error_outline, color: AppColors.warning, size: 20),
+            const SizedBox(width: Space.s),
+            Text('Not delivered (${stale.length})',
+                style: text.titleSmall?.copyWith(color: AppColors.warning)),
+          ]),
+          const SizedBox(height: Space.xs),
+          Text('No counter picked these up. Check it\'s still open, or scan them again.',
+              style: text.bodySmall?.copyWith(color: AppColors.warning)),
+          const SizedBox(height: Space.s),
+          for (final e in stale)
+            Padding(
+              padding: const EdgeInsets.only(top: Space.xs),
+              child: Text('• ${e.rawBarcode} — ${DateFormat('hh:mm a').format(e.scannedAt)}',
+                  style: text.bodySmall),
+            ),
+        ]),
+      ),
     );
   }
 }

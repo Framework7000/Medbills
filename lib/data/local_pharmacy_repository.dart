@@ -426,6 +426,10 @@ class LocalPharmacyRepository implements PharmacyRepository {
       _watch(() => _scanEvents.values.where((e) => e.stationId == stationId).toList());
 
   @override
+  Stream<List<ScanEvent>> watchSentScans(String uid) =>
+      _watch(() => _scanEvents.values.where((e) => e.createdBy == uid).toList());
+
+  @override
   Future<void> markScanDone(String eventId) async {
     final e = _scanEvents[eventId];
     if (e == null) return;

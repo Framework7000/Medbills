@@ -120,6 +120,9 @@ abstract class PharmacyRepository {
   Future<void> saveStation(ScanStation station);
   Future<void> sendScan(ScanEvent event);
   Stream<List<ScanEvent>> watchScansFor(String stationId);
+  /// Every scan this device/user has sent, whatever its status — powers the
+  /// "not delivered" list (scans no counter picked up in time).
+  Stream<List<ScanEvent>> watchSentScans(String uid);
   Future<void> markScanDone(String eventId);
   /// Only the phone that sent it can call this — the 3-second undo window.
   Future<void> markScanCancelled(String eventId);

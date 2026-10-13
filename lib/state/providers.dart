@@ -93,6 +93,12 @@ final billScansProvider = StreamProvider<List<BillScan>>((ref) => _repo(ref).wat
 /// Billing counters currently accepting scans from phones.
 final stationsProvider = StreamProvider<List<ScanStation>>((ref) => _repo(ref).watchStations());
 
+/// Every scan this device/user has sent — powers the "not delivered" list.
+final sentScansProvider = StreamProvider<List<ScanEvent>>((ref) {
+  final repo = _repo(ref);
+  return repo.watchSentScans(repo.actor.uid);
+});
+
 /// Ticks once a minute so expiry status stays current on a counter that
 /// is left open all day.
 final clockProvider = StreamProvider<DateTime>((ref) async* {
