@@ -95,10 +95,10 @@ A pharmacy (medical store, Madhya Pradesh) billing + stock app that works
   credit-customer picker only appear once turned on; the code and any
   existing customer/ledger data were never removed. This store doesn't use
   it, so it stays off.
-- UPI is relabelled "UPI · Razorpay" in the payment picker only — **this is
-  cosmetic, nothing is actually wired to Razorpay.** Real integration needs
-  the owner's Razorpay account/API keys, which haven't been requested or
-  provided. Don't claim this works until it's actually built.
+- UPI's label was briefly changed to "UPI · Razorpay" earlier this session;
+  reverted — nothing is wired to Razorpay, so the label shouldn't suggest it
+  is. Real integration would need the owner's Razorpay account/API keys,
+  which haven't been requested or provided.
 
 ### Inventory
 - Each stock batch now shows when it was **received** (not just when it

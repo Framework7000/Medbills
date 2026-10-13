@@ -766,11 +766,7 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
         Wrap(spacing: Space.s, runSpacing: Space.s, children: [
           for (final mode in PaymentMode.values.where((m) => udhaarEnabled || m != PaymentMode.credit))
             ChoiceChip(
-              label: Text(switch (mode) {
-                PaymentMode.credit => 'Udhaar',
-                PaymentMode.upi => 'UPI · Razorpay',
-                _ => mode.label,
-              }),
+              label: Text(mode == PaymentMode.credit ? 'Udhaar' : mode.label),
               selected: cart.paymentMode == mode,
               onSelected: (_) => notifier.setPaymentMode(mode),
             ),
