@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -266,7 +267,7 @@ class _ScannerScreenState extends State<_ScannerScreen> {
         actions: [
           IconButton(
             tooltip: 'Torch',
-            icon: const Icon(Icons.flashlight_on_outlined),
+            icon: const Icon(PhosphorIconsRegular.flashlight),
             onPressed: () => _controller.toggleTorch(),
           ),
         ],
@@ -321,7 +322,7 @@ class _ScannerScreenState extends State<_ScannerScreen> {
                   heroTag: null,
                   tooltip: 'Photograph a pack or a bill',
                   onPressed: _busy ? null : _onCapture,
-                  child: const Icon(Icons.camera_alt),
+                  child: const Icon(PhosphorIconsRegular.camera),
                 ),
               ),
           ]),
@@ -357,7 +358,7 @@ class _ScannerScreenState extends State<_ScannerScreen> {
                     alignment: Alignment.centerLeft,
                     child: TextButton.icon(
                       onPressed: _tapUndo,
-                      icon: const Icon(Icons.undo),
+                      icon: const Icon(PhosphorIconsRegular.arrowUUpLeft),
                       label: Text('Undo ($_undoSecondsLeft s)'),
                     ),
                   ),
@@ -397,7 +398,7 @@ class _AnimatedFeedback extends StatelessWidget {
         child: Transform.translate(offset: Offset(0, (1 - t) * 8), child: child),
       ),
       child: Row(children: [
-        Icon(feedback.ok ? Icons.check_circle : Icons.error_outline,
+        Icon(feedback.ok ? PhosphorIconsRegular.checkCircle : PhosphorIconsRegular.warningCircle,
             color: feedback.ok ? AppColors.accent : AppColors.danger),
         const SizedBox(width: Space.s),
         Expanded(child: Text(feedback.message, maxLines: 3, overflow: TextOverflow.ellipsis, style: text.bodyMedium)),
@@ -491,7 +492,7 @@ class _ConfirmBurstState extends State<_ConfirmBurst> with SingleTickerProviderS
               width: 96,
               height: 96,
               decoration: const BoxDecoration(color: Color(0xCC1E8E5A), shape: BoxShape.circle),
-              child: const Icon(Icons.check, color: Colors.white, size: 56),
+              child: const Icon(PhosphorIconsRegular.check, color: Colors.white, size: 56),
             ),
           ),
         );

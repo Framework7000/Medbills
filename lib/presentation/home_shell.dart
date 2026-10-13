@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/models/app_user.dart';
@@ -22,19 +23,19 @@ class _Destination {
 }
 
 List<_Destination> _destinationsFor(UserRole role, {required bool udhaarEnabled}) => [
-      _Destination('Billing', Icons.point_of_sale_outlined, Icons.point_of_sale, () => const BillingScreen()),
-      _Destination('Scan', Icons.qr_code_scanner_outlined, Icons.qr_code_scanner, () => const ScanScreen()),
-      _Destination('Stock', Icons.inventory_2_outlined, Icons.inventory_2, () => const InventoryScreen()),
-      _Destination('Bills', Icons.receipt_long_outlined, Icons.receipt_long, () => const BillHistoryScreen()),
+      _Destination('Billing', PhosphorIconsRegular.cashRegister, PhosphorIconsRegular.cashRegister, () => const BillingScreen()),
+      _Destination('Scan', PhosphorIconsRegular.scanSmiley, PhosphorIconsRegular.scanSmiley, () => const ScanScreen()),
+      _Destination('Stock', PhosphorIconsRegular.package, PhosphorIconsRegular.package, () => const InventoryScreen()),
+      _Destination('Bills', PhosphorIconsRegular.receipt, PhosphorIconsRegular.receipt, () => const BillHistoryScreen()),
       // Off by default — the owner turns this on in Settings.
       if (udhaarEnabled)
-        _Destination('Udhaar', Icons.account_balance_wallet_outlined, Icons.account_balance_wallet,
+        _Destination('Udhaar', PhosphorIconsRegular.wallet, PhosphorIconsRegular.wallet,
             () => const CustomersScreen()),
       if (role.canManageStock)
-        _Destination('Purchases', Icons.local_shipping_outlined, Icons.local_shipping, () => const PurchasesScreen()),
+        _Destination('Purchases', PhosphorIconsRegular.truck, PhosphorIconsRegular.truck, () => const PurchasesScreen()),
       if (role.canViewReports)
-        _Destination('Reports', Icons.insights_outlined, Icons.insights, () => const ReportsScreen()),
-      _Destination('Settings', Icons.settings_outlined, Icons.settings, () => const SettingsScreen()),
+        _Destination('Reports', PhosphorIconsRegular.trendUp, PhosphorIconsRegular.trendUp, () => const ReportsScreen()),
+      _Destination('Settings', PhosphorIconsRegular.gear, PhosphorIconsRegular.gear, () => const SettingsScreen()),
     ];
 
 /// Bottom-bar slots on a phone; the rest live behind "More".
@@ -120,7 +121,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         destinations: [
           for (final d in primary)
             NavigationDestination(icon: icon(d, d.icon), selectedIcon: icon(d, d.selectedIcon), label: d.label),
-          const NavigationDestination(icon: Icon(Icons.menu), selectedIcon: Icon(Icons.menu_open), label: 'More'),
+          const NavigationDestination(icon: Icon(PhosphorIconsRegular.list), selectedIcon: Icon(PhosphorIconsRegular.listDashes), label: 'More'),
         ],
       ),
     );
@@ -140,7 +141,7 @@ class _RailHeader extends ConsumerWidget {
       child: SizedBox(
         width: 88,
         child: Column(children: [
-          const Icon(Icons.local_pharmacy, color: AppColors.primary, size: 32),
+          const Icon(PhosphorIconsRegular.firstAidKit, color: AppColors.primary, size: 32),
           const SizedBox(height: Space.xs),
           Text(user.name, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
               style: text.labelSmall),
@@ -149,7 +150,7 @@ class _RailHeader extends ConsumerWidget {
           const SizedBox(height: Space.xs),
           Tooltip(
             message: cloud ? 'Synced with every device of this store' : 'Demo data on this device only',
-            child: Icon(cloud ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
+            child: Icon(cloud ? PhosphorIconsRegular.cloudCheck : PhosphorIconsRegular.cloudSlash,
                 size: 16, color: cloud ? AppColors.accent : AppColors.muted),
           ),
         ]),
@@ -172,7 +173,7 @@ class _MorePage extends StatelessWidget {
             ListTile(
               leading: Icon(d.icon),
               title: Text(d.label),
-              trailing: const Icon(Icons.chevron_right),
+              trailing: const Icon(PhosphorIconsRegular.caretRight),
               onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => d.builder())),
             ),
         ],

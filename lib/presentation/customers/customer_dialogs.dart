@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -44,7 +45,7 @@ class _CustomerPickerState extends ConsumerState<_CustomerPicker> {
           TextField(
             controller: _query,
             autofocus: true,
-            decoration: const InputDecoration(hintText: 'Search name or mobile', prefixIcon: Icon(Icons.search)),
+            decoration: const InputDecoration(hintText: 'Search name or mobile', prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass)),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: Space.s),
@@ -56,7 +57,7 @@ class _CustomerPickerState extends ConsumerState<_CustomerPicker> {
                     .where((c) => q.isEmpty || c.name.toLowerCase().contains(q) || c.phoneNumber.contains(q))
                     .toList();
                 if (matches.isEmpty) {
-                  return EmptyState(icon: Icons.person_off_outlined, title: list.isEmpty ? 'No customers yet' : 'No match');
+                  return EmptyState(icon: PhosphorIconsRegular.userMinus, title: list.isEmpty ? 'No customers yet' : 'No match');
                 }
                 return ListView.builder(
                   itemCount: matches.length,
@@ -79,7 +80,7 @@ class _CustomerPickerState extends ConsumerState<_CustomerPicker> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton.icon(
-          icon: const Icon(Icons.person_add_alt),
+          icon: const Icon(PhosphorIconsRegular.userPlus),
           label: const Text('New customer'),
           onPressed: () async {
             final created = await showNewCustomerDialog(context, initialName: _query.text.trim());

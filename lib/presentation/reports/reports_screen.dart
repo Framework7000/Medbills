@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -92,7 +93,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         actions: [
           IconButton(
             tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(PhosphorIconsRegular.arrowClockwise),
             onPressed: () => ref.invalidate(_salesInRangeProvider(range)),
           ),
         ],

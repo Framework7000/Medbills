@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -36,7 +37,7 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
         actions: [
           IconButton(
             tooltip: 'New customer',
-            icon: const Icon(Icons.person_add_alt),
+            icon: const Icon(PhosphorIconsRegular.userPlus),
             onPressed: () => showNewCustomerDialog(context),
           ),
         ],
@@ -59,7 +60,7 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
                 const SizedBox(height: Space.s),
                 TextField(
                   controller: _query,
-                  decoration: const InputDecoration(hintText: 'Search name or mobile', prefixIcon: Icon(Icons.search)),
+                  decoration: const InputDecoration(hintText: 'Search name or mobile', prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass)),
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: Space.s),
@@ -76,7 +77,7 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
             Expanded(
               child: shown.isEmpty
                   ? EmptyState(
-                      icon: Icons.account_balance_wallet_outlined,
+                      icon: PhosphorIconsRegular.wallet,
                       title: list.isEmpty ? 'No udhaar customers yet' : 'Nobody matches',
                       message: list.isEmpty ? 'Choose "Udhaar" as the payment mode on a bill to start an account.' : null,
                     )
@@ -152,7 +153,7 @@ class CustomerLedgerScreen extends ConsumerWidget {
                     onPressed: customer.outstandingBalancePaise <= 0
                         ? null
                         : () => showReceivePaymentDialog(context, ref, customer),
-                    icon: const Icon(Icons.payments_outlined),
+                    icon: const Icon(PhosphorIconsRegular.coins),
                     label: const Text('Receive'),
                   ),
                 ]),
@@ -163,7 +164,7 @@ class CustomerLedgerScreen extends ConsumerWidget {
             child: AsyncBody<List<CreditLedgerEntry>>(
               value: ledger,
               builder: (entries) => entries.isEmpty
-                  ? const EmptyState(icon: Icons.history, title: 'No entries yet')
+                  ? const EmptyState(icon: PhosphorIconsRegular.clockCounterClockwise, title: 'No entries yet')
                   : ListView.separated(
                       itemCount: entries.length,
                       separatorBuilder: (_, _) => const Divider(indent: Space.l, endIndent: Space.l),
@@ -171,7 +172,7 @@ class CustomerLedgerScreen extends ConsumerWidget {
                         final e = entries[i];
                         final increases = e.type == CreditEntryType.creditSale;
                         return ListTile(
-                          leading: Icon(increases ? Icons.arrow_upward : Icons.arrow_downward,
+                          leading: Icon(increases ? PhosphorIconsRegular.arrowUp : PhosphorIconsRegular.arrowDown,
                               color: increases ? AppColors.danger : AppColors.accent),
                           title: Text(e.type.label + (e.invoiceNumber == null ? '' : ' · ${e.invoiceNumber}')),
                           subtitle: Text(

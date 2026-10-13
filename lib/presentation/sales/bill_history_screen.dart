@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -76,12 +77,12 @@ class _BillHistoryScreenState extends ConsumerState<BillHistoryScreen> {
             controller: _query,
             decoration: InputDecoration(
               hintText: 'Invoice no., customer, mobile or medicine',
-              prefixIcon: const Icon(Icons.search),
+              prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass),
               suffixIcon: _query.text.isEmpty
                   ? null
                   : IconButton(
                       tooltip: 'Clear',
-                      icon: const Icon(Icons.close),
+                      icon: const Icon(PhosphorIconsRegular.x),
                       onPressed: () => setState(_query.clear),
                     ),
             ),
@@ -95,7 +96,7 @@ class _BillHistoryScreenState extends ConsumerState<BillHistoryScreen> {
             padding: const EdgeInsets.symmetric(horizontal: Space.l, vertical: Space.s),
             children: [
               InputChip(
-                avatar: const Icon(Icons.calendar_today, size: 16),
+                avatar: const Icon(PhosphorIconsRegular.calendar, size: 16),
                 label: Text(day == null ? 'Latest bills' : DateFormat('d MMM yyyy').format(day)),
                 onPressed: _pickDay,
                 onDeleted: day == null ? null : () => setState(() => _day = null),
@@ -127,7 +128,7 @@ class _BillHistoryScreenState extends ConsumerState<BillHistoryScreen> {
               final total = live.fold<int>(0, (sum, s) => sum + s.payablePaise);
               if (shown.isEmpty) {
                 return EmptyState(
-                  icon: Icons.receipt_long_outlined,
+                  icon: PhosphorIconsRegular.receipt,
                   title: list.isEmpty ? (day == null ? 'No bills yet' : 'No bills on this day') : 'Nothing matches',
                   message: list.isEmpty && day == null ? 'Completed sales from every counter appear here.' : null,
                 );

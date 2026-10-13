@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/repositories/global_catalogue_repository.dart';
@@ -85,7 +86,7 @@ class _MedicinePickerState extends ConsumerState<_MedicinePicker> {
           TextField(
             controller: _query,
             autofocus: true,
-            decoration: const InputDecoration(hintText: 'Search brand or generic', prefixIcon: Icon(Icons.search)),
+            decoration: const InputDecoration(hintText: 'Search brand or generic', prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass)),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: Space.s),
@@ -115,7 +116,7 @@ class _MedicinePickerState extends ConsumerState<_MedicinePicker> {
                   dense: true,
                   title: Text(e.medicine.name, overflow: TextOverflow.ellipsis),
                   subtitle: Text('${e.medicine.manufacturer} · ${e.medicine.packSizeLabel}', overflow: TextOverflow.ellipsis),
-                  trailing: const Icon(Icons.add_circle_outline),
+                  trailing: const Icon(PhosphorIconsRegular.plusCircle),
                   onTap: () => Navigator.pop(context, PickedMedicine(e.medicine, e.referenceMrpPaise)),
                 ),
               if (storeMatches.isEmpty && catalogueMatches.isEmpty)
@@ -129,7 +130,7 @@ class _MedicinePickerState extends ConsumerState<_MedicinePicker> {
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        OutlinedButton.icon(onPressed: _createNew, icon: const Icon(Icons.add), label: const Text('New medicine')),
+        OutlinedButton.icon(onPressed: _createNew, icon: const Icon(PhosphorIconsRegular.plus), label: const Text('New medicine')),
       ],
     );
   }

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart' show FirebaseException;
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/auth_service.dart';
@@ -75,7 +76,7 @@ class ErrorPanel extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(Space.xl),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.error_outline, color: AppColors.danger, size: 40),
+          const Icon(PhosphorIconsRegular.warningCircle, color: AppColors.danger, size: 40),
           const SizedBox(height: Space.m),
           Text(message, textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyLarge),
         ]),

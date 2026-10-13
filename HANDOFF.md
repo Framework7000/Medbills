@@ -206,10 +206,37 @@ landed — here's the honest split:
   covered by the existing `com.apple.security.files.user-selected.read-write`
   sandbox entitlement. Does nothing on a phone (no OS drag source to
   drop from there) — `DeviceFeatures.isPhone` gates it off.
+  **F** — every one of the 123 Material icon usages across 20 files is now
+  a Phosphor icon, one weight ("Regular") throughout, no mixed styles and
+  no Apple SF Symbols. Hit a real blocker partway through: the obvious
+  package, `phosphor_flutter` (pub.dev's "latest" is still 2.1.0), doesn't
+  compile on this Flutter SDK — `PhosphorIconData extends IconData`, and
+  Flutter made `IconData` a `final` class, so it fails with "The class
+  'IconData' can't be extended outside of its library". `flutter analyze`
+  didn't catch this; only `flutter test`'s full compile did — worth
+  remembering next time a new dependency is added here. Switched to
+  `phosphoricons_flutter` (a maintained fork built for exactly this;
+  same `PhosphorIconsRegular.xxx` API, verified every icon name used here
+  exists in it before swapping), which compiles clean. Also added
+  `visualDensity: VisualDensity.adaptivePlatformDensity` to the theme —
+  standard (full touch targets) on phone, denser lists/controls on
+  Mac/Windows, with no per-screen changes needed since Material widgets
+  read it from the theme automatically. Trimmed the most verbose
+  instructional subtitle text on the Scan screen (Smart Scan, USB/Bluetooth
+  scanner, the receiving-draft helper) down to the essentials.
+  **What's honestly incomplete**: the text trim only covered the Scan
+  screen, not an exhaustive pass over every screen's helper/subtitle
+  copy. And the "re-check every screen on iPhone XR and Mac" verification
+  relied on the automated suite — `flutter analyze` clean, all 105 tests
+  green including `app_smoke_test.dart`'s overflow checks at iPhone SE,
+  iPhone XR, iPad, Mac/Windows and Short-Mac-window sizes, and a real
+  `flutter build macos` succeeding — but NOT a live look at the rendered
+  Mac app: launching the freshly built app in this environment produced
+  a running process with no visible window (no crash, `flutter test`'s
+  widget-tree rendering is unaffected by this — it's specific to actually
+  opening a GUI window here), so a human should open it once and glance
+  over the icon set before trusting it blind.
 - **Not done**:
-  - **F** — replacing Material icons with Phosphor icons app-wide, denser
-    Mac/Windows spacing, cutting helper text. Not started — this is a large,
-    mechanical, many-file change.
   - **H** — correctly left undone on purpose (Razorpay/UPI QR, separate
     per-person logins, Excel export/backups) — the owner said to wait.
 

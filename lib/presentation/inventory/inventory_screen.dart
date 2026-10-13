@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -78,7 +79,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
               padding: const EdgeInsets.fromLTRB(Space.l, Space.l, Space.l, 0),
               child: TextField(
                 controller: _query,
-                decoration: const InputDecoration(hintText: 'Search name, generic, manufacturer or shelf', prefixIcon: Icon(Icons.search)),
+                decoration: const InputDecoration(hintText: 'Search name, generic, manufacturer or shelf', prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass)),
                 onChanged: (_) => setState(() {}),
               ),
             ),
@@ -104,7 +105,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             Expanded(
               child: shown.isEmpty
                   ? EmptyState(
-                      icon: Icons.inventory_2_outlined,
+                      icon: PhosphorIconsRegular.package,
                       title: all.isEmpty ? 'No medicines in stock yet' : 'Nothing here',
                       message: all.isEmpty ? 'Owners and pharmacists receive stock from Purchases.' : null,
                     )
@@ -182,7 +183,7 @@ class MedicineDetailScreen extends ConsumerWidget {
           if (manager)
             IconButton(
               tooltip: 'Edit medicine',
-              icon: const Icon(Icons.edit_outlined),
+              icon: const Icon(PhosphorIconsRegular.pencilSimple),
               onPressed: () => showMedicineEditor(context, initial: m),
             ),
         ],

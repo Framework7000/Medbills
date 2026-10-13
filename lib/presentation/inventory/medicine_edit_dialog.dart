@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -195,7 +196,7 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
                   suffixIcon: DeviceFeatures.cameraScanning
                       ? IconButton(
                           tooltip: 'Scan with camera',
-                          icon: const Icon(Icons.qr_code_scanner),
+                          icon: const Icon(PhosphorIconsRegular.scanSmiley),
                           onPressed: () async {
                             final code = await scanSingleBarcode(context);
                             final gtin = code == null ? null : (Gs1Parser.parse(code).gtin ?? code);

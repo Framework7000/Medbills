@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -373,18 +374,18 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
                   ),
             actions: [
               if (DeviceFeatures.isPhone)
-                IconButton(tooltip: 'Smart Scan', icon: const Icon(Icons.qr_code_scanner), onPressed: _openSmartScan)
+                IconButton(tooltip: 'Smart Scan', icon: const Icon(PhosphorIconsRegular.scanSmiley), onPressed: _openSmartScan)
               else
                 wide
                     ? Padding(
                         padding: const EdgeInsets.only(right: Space.s),
                         child: FilledButton.tonalIcon(
                           onPressed: _openScanHub,
-                          icon: const Icon(Icons.qr_code_scanner),
+                          icon: const Icon(PhosphorIconsRegular.scanSmiley),
                           label: const Text('Scan (F3)'),
                         ),
                       )
-                    : IconButton(tooltip: 'Scan (F3)', icon: const Icon(Icons.qr_code_scanner), onPressed: _openScanHub),
+                    : IconButton(tooltip: 'Scan (F3)', icon: const Icon(PhosphorIconsRegular.scanSmiley), onPressed: _openScanHub),
               if (!ref.watch(cartProvider.select((c) => c.isEmpty)))
                 TextButton.icon(
                   onPressed: () async {
@@ -392,7 +393,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
                       ref.read(cartProvider.notifier).clear();
                     }
                   },
-                  icon: const Icon(Icons.delete_sweep_outlined),
+                  icon: const Icon(PhosphorIconsRegular.trashSimple),
                   label: const Text('Clear'),
                 ),
               if (wide)
@@ -453,12 +454,12 @@ class _SearchField extends StatelessWidget {
       textInputAction: TextInputAction.search,
       decoration: InputDecoration(
         hintText: 'Search medicine, generic or scan barcode',
-        prefixIcon: const Icon(Icons.search),
+        prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass),
         suffixIcon: controller.text.isEmpty
             ? null
             : IconButton(
                 tooltip: 'Clear search',
-                icon: const Icon(Icons.close),
+                icon: const Icon(PhosphorIconsRegular.x),
                 onPressed: () {
                   controller.clear();
                   onChanged('');
@@ -481,7 +482,7 @@ class _SearchResults extends StatelessWidget {
   Widget build(BuildContext context) {
     if (results.isEmpty) {
       return EmptyState(
-        icon: Icons.search_off,
+        icon: PhosphorIconsRegular.magnifyingGlassMinus,
         title: 'No medicine matches "$query"',
         message: 'Owners and pharmacists can add new medicines from Purchases.',
       );
@@ -530,7 +531,7 @@ class _CartList extends ConsumerWidget {
     final cart = ref.watch(cartProvider);
     if (cart.isEmpty) {
       return EmptyState(
-        icon: Icons.shopping_basket_outlined,
+        icon: PhosphorIconsRegular.basket,
         title: 'New bill',
         message: DeviceFeatures.isPhone
             ? 'Search a medicine above, or tap the scanner icon to scan its barcode.'
@@ -579,7 +580,7 @@ class _CartList extends ConsumerWidget {
                   IconButton(
                     tooltip: step > 1 ? 'One pack less' : 'One less',
                     visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.remove_circle_outline),
+                    icon: const Icon(PhosphorIconsRegular.minusCircle),
                     onPressed: () => ref.read(cartProvider.notifier).setQuantity(i, line.quantity - step, available: available),
                   ),
                   InkWell(
@@ -611,7 +612,7 @@ class _CartList extends ConsumerWidget {
                   IconButton(
                     tooltip: step > 1 ? 'One pack more' : 'One more',
                     visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.add_circle_outline),
+                    icon: const Icon(PhosphorIconsRegular.plusCircle),
                     onPressed: () {
                       final ok = ref.read(cartProvider.notifier).setQuantity(i, line.quantity + step, available: available);
                       if (!ok) showMessage(context, 'Batch ${line.batchNumber} has only $available.', error: true);
@@ -620,7 +621,7 @@ class _CartList extends ConsumerWidget {
                   IconButton(
                     tooltip: 'Remove line',
                     visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                    icon: const Icon(PhosphorIconsRegular.trash, color: AppColors.danger),
                     onPressed: () => ref.read(cartProvider.notifier).remove(i),
                   ),
                 ]),
@@ -716,7 +717,7 @@ class _PhoneCheckoutBar extends ConsumerWidget {
           ),
           FilledButton.icon(
             onPressed: cart.isEmpty || busy ? null : onOpen,
-            icon: const Icon(Icons.shopping_cart_checkout),
+            icon: const Icon(PhosphorIconsRegular.shoppingCartSimple),
             label: const Text('Checkout'),
           ),
         ]),
@@ -832,7 +833,7 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
           onPressed: cart.isEmpty || busy ? null : _complete,
           icon: busy
               ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Icon(Icons.check),
+              : const Icon(PhosphorIconsRegular.check),
           label: Text(busy ? 'Saving…' : 'Complete sale'),
         ),
         if (ScheduleCompliance.requiresPrescriptionRecord(cart.schedules)) ...[
@@ -862,7 +863,7 @@ class _CreditCustomerPicker extends ConsumerWidget {
           title: Text(live.name, overflow: TextOverflow.ellipsis),
           subtitle: Text('${live.phoneNumber.isEmpty ? 'No phone' : live.phoneNumber} · ${live.outstandingBalancePaise < 0 ? 'advance' : 'owes'} ${formatRupees(live.outstandingBalancePaise.abs())}'
               '${live.creditLimitPaise > 0 ? ' of ${formatRupees(live.creditLimitPaise)} limit' : ''}'),
-          trailing: IconButton(tooltip: 'Change customer', icon: const Icon(Icons.close), onPressed: () => onChanged(null)),
+          trailing: IconButton(tooltip: 'Change customer', icon: const Icon(PhosphorIconsRegular.x), onPressed: () => onChanged(null)),
         ),
       );
     }
@@ -874,7 +875,7 @@ class _CreditCustomerPicker extends ConsumerWidget {
           final customer = await pickCustomer(context);
           if (customer != null) onChanged(customer);
         },
-        icon: const Icon(Icons.person_search_outlined),
+        icon: const Icon(PhosphorIconsRegular.userFocus),
         label: const Text('Choose customer'),
       ),
     ]);
@@ -989,14 +990,14 @@ class _ScanHubState extends State<_ScanHub> {
             decoration: const InputDecoration(
               labelText: 'Barcode',
               hintText: 'Scan with the USB scanner, or type and press Enter',
-              prefixIcon: Icon(Icons.barcode_reader),
+              prefixIcon: Icon(PhosphorIconsRegular.barcode),
             ),
             onSubmitted: (_) => _submit(),
           ),
           const SizedBox(height: Space.s),
           if (feedback != null)
             Row(children: [
-              Icon(feedback.ok ? Icons.check_circle : Icons.error_outline,
+              Icon(feedback.ok ? PhosphorIconsRegular.checkCircle : PhosphorIconsRegular.warningCircle,
                   color: feedback.ok ? AppColors.accent : AppColors.danger, size: 20),
               const SizedBox(width: Space.s),
               Expanded(child: Text(feedback.message, style: text.bodyMedium)),
@@ -1010,7 +1011,7 @@ class _ScanHubState extends State<_ScanHub> {
           if (widget.onSmartScan != null)
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.photo_camera_outlined),
+              leading: const Icon(PhosphorIconsRegular.camera),
               title: const Text('Smart Scan'),
               subtitle: const Text('Point at a barcode to add it, or tap the camera button for a pack or a bill'),
               onTap: () => _then(widget.onSmartScan!),
@@ -1018,7 +1019,7 @@ class _ScanHubState extends State<_ScanHub> {
           if (widget.onToggleStation != null)
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: Icon(station == null ? Icons.phonelink_outlined : Icons.phonelink_off_outlined),
+              leading: Icon(station == null ? PhosphorIconsRegular.deviceMobile : PhosphorIconsRegular.deviceMobileSlash),
               title: Text(station == null ? 'Use a phone as the scanner' : 'Stop receiving phone scans'),
               subtitle: Text(station == null
                   ? 'Scans made on the iPhone app appear on this bill'
@@ -1074,7 +1075,7 @@ class _IncomingScanCard extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: Space.m, vertical: Space.s),
               child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Icon(scan.ok ? Icons.phonelink_ring : Icons.error_outline,
+                Icon(scan.ok ? PhosphorIconsRegular.bellRinging : PhosphorIconsRegular.warningCircle,
                     color: scan.ok ? AppColors.accent : AppColors.danger, size: 20),
                 const SizedBox(width: Space.s),
                 Flexible(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/providers.dart';
@@ -61,7 +62,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const Icon(Icons.local_pharmacy, size: 48, color: AppColors.primary),
+                          const Icon(PhosphorIconsRegular.firstAidKit, size: 48, color: AppColors.primary),
                           const SizedBox(height: Space.s),
                           Text('MedBills', textAlign: TextAlign.center, style: text.headlineSmall?.copyWith(color: AppColors.primary)),
                           Text('Sign in to your store', textAlign: TextAlign.center,
@@ -69,7 +70,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           const SizedBox(height: Space.xl),
                           TextFormField(
                             controller: _email,
-                            decoration: const InputDecoration(labelText: 'Email', prefixIcon: Icon(Icons.mail_outline)),
+                            decoration: const InputDecoration(labelText: 'Email', prefixIcon: Icon(PhosphorIconsRegular.envelopeSimple)),
                             keyboardType: TextInputType.emailAddress,
                             autofillHints: const [AutofillHints.username, AutofillHints.email],
                             autocorrect: false,
@@ -82,10 +83,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             obscureText: _obscure,
                             decoration: InputDecoration(
                               labelText: 'Password',
-                              prefixIcon: const Icon(Icons.lock_outline),
+                              prefixIcon: const Icon(PhosphorIconsRegular.lockSimple),
                               suffixIcon: IconButton(
                                 tooltip: _obscure ? 'Show password' : 'Hide password',
-                                icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                                icon: Icon(_obscure ? PhosphorIconsRegular.eye : PhosphorIconsRegular.eyeSlash),
                                 onPressed: () => setState(() => _obscure = !_obscure),
                               ),
                             ),
@@ -128,7 +129,7 @@ class NoAccessScreen extends ConsumerWidget {
     return Scaffold(
       body: SafeArea(
         child: EmptyState(
-          icon: Icons.no_accounts_outlined,
+          icon: PhosphorIconsRegular.prohibit,
           title: 'No store access',
           message: '$email is signed in but isn\'t set up as staff of a store, or the account has been '
               'deactivated. Ask the store owner to add it.',

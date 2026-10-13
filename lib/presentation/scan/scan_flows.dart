@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
@@ -158,7 +159,7 @@ class _PackScanDialogState extends State<_PackScanDialog> {
           ),
           TextField(
             controller: _search,
-            decoration: const InputDecoration(hintText: 'Not listed? Search', prefixIcon: Icon(Icons.search)),
+            decoration: const InputDecoration(hintText: 'Not listed? Search', prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass)),
             onChanged: (_) => setState(() {}),
           ),
           const Divider(height: Space.xl),

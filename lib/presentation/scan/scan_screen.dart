@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/services/billing_calculator.dart';
@@ -79,7 +80,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                     Text(subtitle, style: text.bodySmall?.copyWith(color: AppColors.muted)),
                   ]),
                 ),
-                if (onTap != null) const Icon(Icons.chevron_right),
+                if (onTap != null) const Icon(PhosphorIconsRegular.caretRight),
               ]),
               if (extra != null) ...[const SizedBox(height: Space.m), extra],
             ]),
@@ -91,26 +92,25 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     final cards = <Widget>[
       if (DeviceFeatures.cameraScanning)
         action(
-          icon: Icons.qr_code_scanner,
+          icon: PhosphorIconsRegular.scanSmiley,
           title: 'Smart Scan',
           subtitle: mode == ScanMode.receiving
-              ? 'Photograph each pack from the delivery — they build into one bill to review before stock is added.'
+              ? 'Photograph each pack — they build into one bill to review.'
               : target == null
-                  ? 'Point at a barcode to add it — or tap the camera button for a pack label or a supplier bill. '
-                      'It figures out which.'
+                  ? 'Barcode adds it; camera reads a pack or a bill.'
                   : 'Scans go to ${target.name}\'s bill.',
           onTap: () => openSmartScanner(context, ref),
           extra: const SmartScanHeader(),
         ),
       if (!phone)
         action(
-          icon: Icons.barcode_reader,
+          icon: PhosphorIconsRegular.barcode,
           title: 'USB / Bluetooth scanner',
-          subtitle: 'Scan into the box below (or type a code and press Enter) — it goes on the bill in Billing.',
+          subtitle: 'Scan or type a code, then Enter — goes onto the Billing bill.',
           extra: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TextField(
               controller: _code,
-              decoration: const InputDecoration(hintText: 'Barcode', prefixIcon: Icon(Icons.qr_code_2)),
+              decoration: const InputDecoration(hintText: 'Barcode', prefixIcon: Icon(PhosphorIconsRegular.qrCode)),
               onSubmitted: (_) => _submitCode(),
             ),
             if (_feedback != null) ...[
@@ -127,7 +127,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         ),
       if (!DeviceFeatures.cameraScanning)
         action(
-          icon: Icons.document_scanner_outlined,
+          icon: PhosphorIconsRegular.fileText,
           title: 'Read a medicine pack',
           subtitle: 'Works in the iPhone / Android app.',
           onTap: null,

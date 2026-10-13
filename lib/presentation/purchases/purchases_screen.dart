@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -204,7 +205,7 @@ class _ReceiveStockFormState extends ConsumerState<_ReceiveStockForm> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         FilledButton.tonalIcon(
           onPressed: () => captureSupplierBill(context, ref),
-          icon: const Icon(Icons.document_scanner_outlined),
+          icon: const Icon(PhosphorIconsRegular.fileText),
           label: Text(DeviceFeatures.textReading ? 'Scan supplier bill' : 'Add supplier bill photo'),
         ),
         const SizedBox(height: Space.xs),
@@ -226,19 +227,19 @@ class _ReceiveStockFormState extends ConsumerState<_ReceiveStockForm> {
         Row(children: [
           Expanded(child: Text('Medicine', style: text.titleMedium)),
           if (DeviceFeatures.textReading)
-            TextButton.icon(onPressed: _readPack, icon: const Icon(Icons.photo_camera_outlined), label: const Text('Read pack')),
+            TextButton.icon(onPressed: _readPack, icon: const Icon(PhosphorIconsRegular.camera), label: const Text('Read pack')),
         ]),
         const SizedBox(height: Space.s),
         Card(
           child: ListTile(
             onTap: _chooseMedicine,
-            leading: const Icon(Icons.medication_outlined),
+            leading: const Icon(PhosphorIconsRegular.pill),
             title: Text(medicine?.name ?? 'Choose medicine', overflow: TextOverflow.ellipsis),
             subtitle: medicine == null
                 ? const Text('From your stock, the master catalogue, or a new one')
                 : Text('${medicine.packSizeLabel} · ${medicine.unitsPerPack} unit${medicine.unitsPerPack == 1 ? '' : 's'}/pack · '
                     '${medicine.scheduleType.label} · GST ${medicine.gstRate.toStringAsFixed(0)}%'),
-            trailing: const Icon(Icons.chevron_right),
+            trailing: const Icon(PhosphorIconsRegular.caretRight),
           ),
         ),
         const SizedBox(height: Space.l),
@@ -328,7 +329,7 @@ class _ReceiveStockFormState extends ConsumerState<_ReceiveStockForm> {
           onPressed: _busy ? null : _submit,
           icon: _busy
               ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Icon(Icons.add_box_outlined),
+              : const Icon(PhosphorIconsRegular.plusSquare),
           label: const Text('Receive stock'),
         ),
       ]),
@@ -343,7 +344,7 @@ class _PurchaseHistory extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (purchases.isEmpty) {
-      return const EmptyState(icon: Icons.local_shipping_outlined, title: 'No purchases yet');
+      return const EmptyState(icon: PhosphorIconsRegular.truck, title: 'No purchases yet');
     }
     final text = Theme.of(context).textTheme;
     return ListView.separated(

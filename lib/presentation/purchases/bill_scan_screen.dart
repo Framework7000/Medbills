@@ -1,5 +1,6 @@
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -51,13 +52,13 @@ Future<bool> captureSupplierBill(BuildContext context, WidgetRef ref) async {
       builder: (context) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
-            leading: const Icon(Icons.photo_camera_outlined),
+            leading: const Icon(PhosphorIconsRegular.camera),
             title: const Text('Take a photo of the bill'),
             subtitle: const Text('Flat, in good light, whole page in view'),
             onTap: () => Navigator.pop(context, ImageSource.camera),
           ),
           ListTile(
-            leading: const Icon(Icons.upload_file_outlined),
+            leading: const Icon(PhosphorIconsRegular.uploadSimple),
             title: const Text('Choose a file'),
             subtitle: const Text('Pick an existing photo or scan from this computer'),
             onTap: () => Navigator.pop(context, ImageSource.gallery),
@@ -172,7 +173,7 @@ class _SupplierBillDropZoneState extends ConsumerState<SupplierBillDropZone> {
                 color: AppColors.primaryContainer.withValues(alpha: 0.85),
                 child: const Center(
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.file_download_outlined, size: 40, color: AppColors.primary),
+                    Icon(PhosphorIconsRegular.downloadSimple, size: 40, color: AppColors.primary),
                     SizedBox(height: Space.s),
                     Text('Drop to add as a supplier bill', style: TextStyle(color: AppColors.primary)),
                   ]),
@@ -197,7 +198,7 @@ class BillScanList extends ConsumerWidget {
       builder: (scans) {
         if (scans.isEmpty) {
           return const EmptyState(
-            icon: Icons.receipt_outlined,
+            icon: PhosphorIconsRegular.receipt,
             title: 'No scanned bills yet',
             message: 'Use "Scan supplier bill" — the photo is kept with what was read from it.',
           );
@@ -214,7 +215,7 @@ class BillScanList extends ConsumerWidget {
               BillScanStatus.discarded => ('Discarded', AppColors.muted, AppColors.infoContainer),
             };
             return ListTile(
-              leading: Icon(s.hasImage ? Icons.receipt_long : Icons.receipt_long_outlined),
+              leading: Icon(s.hasImage ? PhosphorIconsRegular.receipt : PhosphorIconsRegular.receipt),
               title: Row(children: [
                 Flexible(
                   child: Text(d.supplierName.isEmpty ? 'Supplier not read' : d.supplierName,
@@ -490,7 +491,7 @@ class _BillReviewScreenState extends ConsumerState<BillReviewScreen> {
           ].join('\n'),
         ),
         isThreeLine: draft.supplierGstin.isNotEmpty || draft.supplierDrugLicence.isNotEmpty,
-        trailing: editable ? const Icon(Icons.edit_outlined) : null,
+        trailing: editable ? const Icon(PhosphorIconsRegular.pencilSimple) : null,
       ),
     );
 
@@ -525,7 +526,7 @@ class _BillReviewScreenState extends ConsumerState<BillReviewScreen> {
         Row(children: [
           Expanded(child: Text('Items (${draft.lines.length})', style: text.titleMedium)),
           if (editable)
-            TextButton.icon(onPressed: () => _editLine(draft.lines.length), icon: const Icon(Icons.add), label: const Text('Add line')),
+            TextButton.icon(onPressed: () => _editLine(draft.lines.length), icon: const Icon(PhosphorIconsRegular.plus), label: const Text('Add line')),
         ]),
         if (draft.lines.isEmpty)
           const Card(
@@ -563,7 +564,7 @@ class _BillReviewScreenState extends ConsumerState<BillReviewScreen> {
           title: Text(scan.status == BillScanStatus.draft ? 'Check supplier bill' : 'Supplier bill'),
           actions: [
             if (editable)
-              IconButton(tooltip: 'Discard', icon: const Icon(Icons.delete_outline), onPressed: _busy ? null : _discard),
+              IconButton(tooltip: 'Discard', icon: const Icon(PhosphorIconsRegular.trash), onPressed: _busy ? null : _discard),
             if (editable && _dirty) TextButton(onPressed: _busy ? null : () => _save(), child: const Text('Save')),
           ],
         ),
@@ -585,7 +586,7 @@ class _BillReviewScreenState extends ConsumerState<BillReviewScreen> {
                           onPressed: _busy ? null : _receive,
                           icon: _busy
                               ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.inventory_outlined),
+                              : const Icon(PhosphorIconsRegular.archive),
                           label: Text('Receive ${draft.lines.where((l) => l.include && !l.received).length} lines into stock'),
                         )
                       : FilledButton(
@@ -651,7 +652,7 @@ class _LineCard extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(Space.s, Space.s, Space.m, Space.s),
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             if (line.received)
-              const Padding(padding: EdgeInsets.all(Space.m), child: Icon(Icons.check_circle, color: AppColors.accent))
+              const Padding(padding: EdgeInsets.all(Space.m), child: Icon(PhosphorIconsRegular.checkCircle, color: AppColors.accent))
             else
               Checkbox(value: line.include, onChanged: editable ? (v) => onInclude(v ?? false) : null),
             Expanded(
@@ -679,7 +680,7 @@ class _LineCard extends StatelessWidget {
                     style: text.labelSmall?.copyWith(color: AppColors.muted)),
               ]),
             ),
-            if (editable) const Padding(padding: EdgeInsets.only(top: Space.m), child: Icon(Icons.edit_outlined, size: 18)),
+            if (editable) const Padding(padding: EdgeInsets.only(top: Space.m), child: Icon(PhosphorIconsRegular.pencilSimple, size: 18)),
           ]),
         ),
       ),
@@ -723,7 +724,7 @@ class _HeaderDialogState extends State<_HeaderDialog> {
           TextField(controller: _number, decoration: const InputDecoration(labelText: 'Bill number')),
           gap,
           OutlinedButton.icon(
-            icon: const Icon(Icons.calendar_today, size: 18),
+            icon: const Icon(PhosphorIconsRegular.calendar, size: 18),
             label: Text(_date == null ? 'Bill date' : DateFormat('d MMM yyyy').format(_date!)),
             onPressed: () async {
               final now = DateTime.now();
@@ -832,10 +833,10 @@ class _LineDialogState extends State<_LineDialog> {
             Card(
               child: ListTile(
                 onTap: _chooseMedicine,
-                leading: const Icon(Icons.medication_outlined),
+                leading: const Icon(PhosphorIconsRegular.pill),
                 title: Text(_medicine?.name ?? 'Choose medicine', overflow: TextOverflow.ellipsis),
                 subtitle: _medicine == null ? null : Text('${_medicine!.packSizeLabel} · GST ${_medicine!.gstRate.toStringAsFixed(0)}%'),
-                trailing: const Icon(Icons.chevron_right),
+                trailing: const Icon(PhosphorIconsRegular.caretRight),
               ),
             ),
             gap,

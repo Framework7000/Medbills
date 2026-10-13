@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -339,7 +340,7 @@ class _ScanTargetPickerState extends ConsumerState<ScanTargetPicker> {
         : Padding(
             padding: const EdgeInsets.only(bottom: Space.s),
             child: Row(children: [
-              const Icon(Icons.wifi_off, size: 16, color: AppColors.muted),
+              const Icon(PhosphorIconsRegular.wifiSlash, size: 16, color: AppColors.muted),
               const SizedBox(width: Space.xs),
               Expanded(
                 child: Text('Counter offline: $offlineName',
@@ -387,7 +388,7 @@ class NotDeliveredScans extends ConsumerWidget {
         padding: const EdgeInsets.all(Space.l),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const Icon(Icons.error_outline, color: AppColors.warning, size: 20),
+            const Icon(PhosphorIconsRegular.warningCircle, color: AppColors.warning, size: 20),
             const SizedBox(width: Space.s),
             Text('Not delivered (${stale.length})',
                 style: text.titleSmall?.copyWith(color: AppColors.warning)),
@@ -421,9 +422,9 @@ class ScanModeToggle extends ConsumerWidget {
       padding: const EdgeInsets.only(bottom: Space.s),
       child: SegmentedButton<ScanMode>(
         segments: const [
-          ButtonSegment(value: ScanMode.selling, label: Text('Selling'), icon: Icon(Icons.point_of_sale_outlined)),
+          ButtonSegment(value: ScanMode.selling, label: Text('Selling'), icon: Icon(PhosphorIconsRegular.cashRegister)),
           ButtonSegment(
-              value: ScanMode.receiving, label: Text('Receiving'), icon: Icon(Icons.inventory_2_outlined)),
+              value: ScanMode.receiving, label: Text('Receiving'), icon: Icon(PhosphorIconsRegular.package)),
         ],
         selected: {mode},
         onSelectionChanged: (s) => ref.read(scanModeProvider.notifier).state = s.first,
@@ -462,7 +463,7 @@ class ReceivingSummary extends ConsumerWidget {
     final packs = draft.lines.fold<int>(0, (sum, l) => sum + l.packs);
     if (draft.lines.isEmpty) {
       return Text(
-        'Scan packs from a delivery — they build into one bill for a pharmacist to price-check and receive.',
+        'Scan packs from a delivery — they build into one bill to receive.',
         style: text.bodySmall?.copyWith(color: AppColors.muted),
       );
     }

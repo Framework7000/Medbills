@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'firebase_options.dart';
@@ -66,7 +67,7 @@ class _StartupFailed extends StatelessWidget {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.cloud_off_outlined, size: 48, color: AppColors.danger),
+                  const Icon(PhosphorIconsRegular.cloudSlash, size: 48, color: AppColors.danger),
                   const SizedBox(height: Space.l),
                   Text('MedBills could not start', style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: Space.s),
@@ -81,7 +82,7 @@ class _StartupFailed extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.muted)),
                   const SizedBox(height: Space.l),
-                  FilledButton.icon(onPressed: onRetry, icon: const Icon(Icons.refresh), label: const Text('Try again')),
+                  FilledButton.icon(onPressed: onRetry, icon: const Icon(PhosphorIconsRegular.arrowClockwise), label: const Text('Try again')),
                 ]),
               ),
             ),

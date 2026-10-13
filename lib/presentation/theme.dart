@@ -52,6 +52,9 @@ ThemeData buildTheme() {
     scaffoldBackgroundColor: AppColors.scaffold,
     fontFamily: 'WorkSans',
     fontFamilyFallback: fallback,
+    // Standard (full touch targets) on phone; denser lists and controls on
+    // Mac/Windows, where a mouse doesn't need 44pt of slack.
+    visualDensity: VisualDensity.adaptivePlatformDensity,
   );
   TextStyle? outfit(TextStyle? s) => s?.copyWith(fontFamily: 'Outfit', fontFamilyFallback: fallback);
   final text = base.textTheme;

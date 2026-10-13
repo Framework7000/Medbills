@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -41,7 +42,7 @@ class InvoiceScreen extends ConsumerWidget {
           if (user != null && user.role.canCancelSales && !sale.isCancelled)
             IconButton(
               tooltip: 'Cancel this sale',
-              icon: const Icon(Icons.block),
+              icon: const Icon(PhosphorIconsRegular.prohibit),
               onPressed: () => _cancel(context, ref, sale),
             ),
         ],
@@ -61,7 +62,7 @@ class InvoiceScreen extends ConsumerWidget {
                       child: Padding(
                         padding: const EdgeInsets.all(Space.l),
                         child: Row(children: [
-                          const Icon(Icons.check_circle, color: AppColors.primary),
+                          const Icon(PhosphorIconsRegular.checkCircle, color: AppColors.primary),
                           const SizedBox(width: Space.m),
                           Expanded(
                             child: Text('${sale.invoiceNumber} saved · collect ${formatRupees(sale.payablePaise)}'
@@ -168,17 +169,17 @@ class _InvoiceActionsState extends State<_InvoiceActions> {
             for (final p in InvoicePaper.values) PopupMenuItem(value: p, child: Text('Print — ${p.label}')),
           ],
           child: IgnorePointer(
-            child: FilledButton.icon(onPressed: _busy ? null : () {}, icon: const Icon(Icons.print), label: const Text('Print')),
+            child: FilledButton.icon(onPressed: _busy ? null : () {}, icon: const Icon(PhosphorIconsRegular.printer), label: const Text('Print')),
           ),
         ),
         OutlinedButton.icon(
           onPressed: _busy ? null : () => _run(() => InvoicePdf.save(sale, store), 'Could not save the PDF.'),
-          icon: const Icon(Icons.picture_as_pdf_outlined),
+          icon: const Icon(PhosphorIconsRegular.filePdf),
           label: const Text('PDF'),
         ),
         OutlinedButton.icon(
           onPressed: _busy ? null : () => _run(() => WhatsAppBill.send(sale, store), 'Could not open WhatsApp.'),
-          icon: const Icon(Icons.chat_outlined),
+          icon: const Icon(PhosphorIconsRegular.chatCircle),
           label: const Text('WhatsApp'),
         ),
         if (_busy) const Padding(padding: EdgeInsets.all(Space.s), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),

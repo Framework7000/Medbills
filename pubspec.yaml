@@ -25,6 +25,7 @@ dependencies:
   image: ^4.12.0
   shared_preferences: ^2.3.3
   desktop_drop: ^0.6.1
+  phosphoricons_flutter: ^1.1.1
 
 dev_dependencies:
   flutter_test:

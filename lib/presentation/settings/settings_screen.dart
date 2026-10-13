@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -33,14 +34,14 @@ class SettingsScreen extends ConsumerWidget {
               Card(
                 child: Column(children: [
                   ListTile(
-                    leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+                    leading: const CircleAvatar(child: Icon(PhosphorIconsRegular.user)),
                     title: Text(user.name, overflow: TextOverflow.ellipsis),
                     subtitle: Text('${user.role.label}${user.email.isEmpty ? '' : ' · ${user.email}'}',
                         maxLines: 2, overflow: TextOverflow.ellipsis),
                   ),
                   const Divider(),
                   ListTile(
-                    leading: Icon(cloud ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
+                    leading: Icon(cloud ? PhosphorIconsRegular.cloudCheck : PhosphorIconsRegular.cloudSlash,
                         color: cloud ? AppColors.accent : AppColors.muted),
                     title: Text(cloud ? 'Synced across all store devices' : 'Demo mode'),
                     subtitle: Text(cloud
@@ -58,7 +59,7 @@ class SettingsScreen extends ConsumerWidget {
                   value: store,
                   builder: (p) => Column(children: [
                     ListTile(
-                      leading: const Icon(Icons.storefront_outlined),
+                      leading: const Icon(PhosphorIconsRegular.storefront),
                       title: Text(p.name, overflow: TextOverflow.ellipsis),
                       subtitle: Text(
                         [
@@ -72,7 +73,7 @@ class SettingsScreen extends ConsumerWidget {
                       trailing: user.role.canEditStore
                           ? IconButton(
                               tooltip: 'Edit store details',
-                              icon: const Icon(Icons.edit_outlined),
+                              icon: const Icon(PhosphorIconsRegular.pencilSimple),
                               onPressed: () => showDialog<void>(context: context, builder: (_) => _StoreDialog(profile: p)),
                             )
                           : null,
@@ -87,7 +88,7 @@ class SettingsScreen extends ConsumerWidget {
                 child: AsyncBody<StoreProfile>(
                   value: store,
                   builder: (p) => SwitchListTile(
-                    secondary: const Icon(Icons.account_balance_wallet_outlined),
+                    secondary: const Icon(PhosphorIconsRegular.wallet),
                     title: const Text('Udhaar accounts'),
                     subtitle: Text(user.role.canEditStore
                         ? 'Let staff sell on credit and track customer accounts.'
@@ -112,7 +113,7 @@ class SettingsScreen extends ConsumerWidget {
                 child: Column(children: [
                   if (auth is DemoAuthService) ...[
                     ListTile(
-                      leading: const Icon(Icons.switch_account_outlined),
+                      leading: const Icon(PhosphorIconsRegular.arrowsLeftRight),
                       title: const Text('Try as another role'),
                       subtitle: const Text('See what counter staff and pharmacists can do.'),
                       trailing: DropdownButton<UserRole>(
@@ -126,14 +127,14 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                   ] else ...[
                     ListTile(
-                      leading: const Icon(Icons.password_outlined),
+                      leading: const Icon(PhosphorIconsRegular.password),
                       title: const Text('Change password'),
-                      trailing: const Icon(Icons.chevron_right),
+                      trailing: const Icon(PhosphorIconsRegular.caretRight),
                       onTap: () => showDialog<void>(context: context, builder: (_) => const _PasswordDialog()),
                     ),
                     const Divider(),
                     ListTile(
-                      leading: const Icon(Icons.logout, color: AppColors.danger),
+                      leading: const Icon(PhosphorIconsRegular.signOut, color: AppColors.danger),
                       title: const Text('Sign out', style: TextStyle(color: AppColors.danger)),
                       onTap: () async {
                         final ok = await confirmDialog(context,
