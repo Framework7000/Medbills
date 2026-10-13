@@ -185,13 +185,19 @@ landed — here's the honest split:
   (`test/domain/smart_scan_classifier_test.dart`) — there were no
   dedicated tests for it before despite the earlier note here, only
   inline coverage of the other parsers in `scan_parsers_test.dart`.
+  **E** (remainder) — the bill list itself now animates: a new line
+  (`_CartRowAnimator` in `billing_screen.dart`) fades and slides in on
+  its first appearance (its widget key is only ever fresh once, so this
+  naturally fires exactly once per line, not on every rebuild); editing
+  an existing line's quantity afterwards pulses it with a brief
+  highlight instead of silently updating. The Payable total, both on
+  the phone's checkout bar and the full checkout panel, now eases to
+  its new value (`CountUpAmount` in `widgets/common.dart`) instead of
+  jumping. This is on top of the animated arrival toast that already
+  existed — that's unchanged.
 - **Not done**:
   - **C** (remainder) — true drag-and-drop of a file onto the Mac/Windows
     window (only "Choose a file" via the picker exists).
-  - **E** (remainder) — the receiving counter's "item flies into the bill,
-    row pulses once, total counts up" animation. What exists is the
-    animated arrival toast; the bill list itself doesn't yet animate the
-    new line or the total.
   - **F** — replacing Material icons with Phosphor icons app-wide, denser
     Mac/Windows spacing, cutting helper text. Not started — this is a large,
     mechanical, many-file change.

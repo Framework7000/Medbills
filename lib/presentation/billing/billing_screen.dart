@@ -550,7 +550,7 @@ class _CartList extends ConsumerWidget {
         final short = line.quantity > available;
         final step = line.unitsPerPack > 1 ? line.unitsPerPack : 1;
         final stock = index[line.medicineId];
-        return Card(
+        final card = Card(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(Space.m, Space.s, Space.xs, Space.s),
             child: Row(children: [
@@ -628,7 +628,65 @@ class _CartList extends ConsumerWidget {
             ]),
           ),
         );
+        return _CartRowAnimator(key: ValueKey(line.batchId), quantity: line.quantity, child: card);
       },
+    );
+  }
+}
+
+/// Wraps one bill line so it flies in the first time it appears (new key =
+/// a fresh State, so this naturally only fires once) and pulses once
+/// whenever its quantity changes after that — the only cue a counter has
+/// that a phone's scan just landed, without having to stare at the list.
+class _CartRowAnimator extends StatefulWidget {
+  const _CartRowAnimator({super.key, required this.quantity, required this.child});
+  final int quantity;
+  final Widget child;
+
+  @override
+  State<_CartRowAnimator> createState() => _CartRowAnimatorState();
+}
+
+class _CartRowAnimatorState extends State<_CartRowAnimator> with TickerProviderStateMixin {
+  late final _entrance = AnimationController(vsync: this, duration: const Duration(milliseconds: 280))..forward();
+  late final _enterCurve = CurvedAnimation(parent: _entrance, curve: Curves.easeOutCubic);
+  late final _pulseController = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
+  late final _pulse = TweenSequence<double>([
+    TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 1),
+    TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 1),
+  ]).animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
+
+  @override
+  void didUpdateWidget(_CartRowAnimator oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.quantity != oldWidget.quantity) _pulseController.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _entrance.dispose();
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_enterCurve, _pulse]),
+      child: widget.child,
+      builder: (context, child) => Opacity(
+        opacity: _enterCurve.value,
+        child: Transform.translate(
+          offset: Offset((1 - _enterCurve.value) * 24, 0),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: Color.lerp(Colors.transparent, AppColors.accent.withValues(alpha: 0.18), _pulse.value),
+            ),
+            child: child,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -651,7 +709,7 @@ class _PhoneCheckoutBar extends ConsumerWidget {
         child: Row(children: [
           Expanded(
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(formatRupees(summary.payablePaise), style: text.titleLarge),
+              CountUpAmount(summary.payablePaise, style: text.titleLarge),
               Text('${cart.lines.length} line${cart.lines.length == 1 ? '' : 's'} · incl. GST ${formatRupees(summary.gstPaise)}',
                   style: text.bodySmall?.copyWith(color: AppColors.muted)),
             ]),
@@ -761,7 +819,14 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
         AmountRow('Total (MRP)', formatRupees(summary.grossPaise)),
         AmountRow('Round off', formatRupees(summary.roundOffPaise)),
         const Divider(height: Space.l),
-        AmountRow('Payable', formatRupees(summary.payablePaise), emphasis: true),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(children: [
+            Expanded(child: Text('Payable', style: text.titleMedium)),
+            const SizedBox(width: Space.s),
+            CountUpAmount(summary.payablePaise, style: text.titleMedium, textAlign: TextAlign.right),
+          ]),
+        ),
         const SizedBox(height: Space.l),
         FilledButton.icon(
           onPressed: cart.isEmpty || busy ? null : _complete,

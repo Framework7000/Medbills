@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/auth_service.dart';
 import '../../data/pharmacy_repository.dart';
 import '../../domain/models/schedule_type.dart';
+import '../../domain/services/billing_calculator.dart';
 import '../../domain/services/checkout_engine.dart';
 import '../../domain/services/fefo_selector.dart';
 import '../../domain/services/stock_summary.dart';
@@ -199,6 +200,26 @@ class AmountRow extends StatelessWidget {
         const SizedBox(width: Space.s),
         Text(value, style: style, textAlign: TextAlign.right),
       ]),
+    );
+  }
+}
+
+/// A rupee amount that eases to a new value instead of jumping straight to
+/// it — the running total on a counter where stock arrives live (scans,
+/// remote sales) should visibly count, not just change.
+class CountUpAmount extends StatelessWidget {
+  const CountUpAmount(this.paise, {super.key, this.style, this.textAlign});
+  final int paise;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: paise.toDouble()),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) => Text(formatRupees(value.round()), style: style, textAlign: textAlign),
     );
   }
 }
