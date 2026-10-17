@@ -1,0 +1,6 @@
+rule,applies_to,gst_rate,source,verified
+default_medicine,"HSN 3003/3004 finished medicines (allopathic, Ayurvedic, Unani, Siddha, Homoeopathic)",5,"GST Council 56th meeting; rates effective 22-09-2025 (CBIC Notification 9/2025-CT(Rate)); was 12%",secondary sources agree; confirm against CBIC text
+nil_life_saving,"36 specified life-saving drugs (33 moved 12%->nil, 3 moved 5%->nil: agalsidase beta, imiglucerase, eptacog alfa ...)",0,"CBIC Notification 9/2025 or 10/2025-CT(Rate) — fill nil_rated_drugs.csv from the official list",TODO worker: copy names verbatim from the notification
+medical_devices_diagnostics,"thermometers, glucometers + strips, diagnostic kits/reagents, medical-grade oxygen",5,"GST 2.0 rate schedule effective 22-09-2025",secondary sources; confirm
+personal_care,"toothpaste, shampoo, hair oil, soap, toothbrush, shaving cream",5,"GST 2.0 rate schedule effective 22-09-2025 (was 18%)",secondary sources; confirm
+unconfirmed,"talcum powder, malt/protein nutrition powders (HSN 1901/2106), bandages/dressings (3005)",,"not confirmed — set per item from the owner's purchase bill",TODO
