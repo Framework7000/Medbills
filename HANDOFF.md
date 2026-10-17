@@ -3,6 +3,49 @@
 Read this first, then `README.md`. Branch: `claude/medbills-repo-t8ueeh`
 (GitHub: Framework7000/Medbills). Everything below is pushed.
 
+## Product shape (owner, Oct 2026 — this decides every trade-off)
+
+- **Windows laptop = the main app**: billing counter, stock, purchases,
+  reports, printing. The Mac is only standing in for Windows while testing,
+  so every feature must behave the same on both. Don't build anything that
+  works only on the Mac. Windows has no camera scanning (mobile_scanner
+  doesn't support it), so it relies on a USB scanner and the phone.
+- **iPhone = mainly the scanner.** Opening the app should go straight to one
+  big camera that sends what it sees to the counter. Billing, stock and bills
+  on the phone are a convenient extra, not the focus.
+- **Smart Scan = ONE camera, no mode buttons.** It decides by itself:
+  1. **Barcode / QR / DataMatrix**: decode live from the camera stream, and
+     **also from any still photo** (`MobileScannerController.analyzeImage`)
+     before any text reading. GS1 DataMatrix and the Schedule H2 QR codes
+     (top 300 brands since Aug 2023) carry batch and expiry, so they are the
+     most accurate source.
+  2. **No code → read the text** and score pack vs supplier bill on real
+     signals:
+     - Bill: GSTIN, invoice/bill no., several batch numbers,
+       Qty/Rate/Amount columns.
+     - Pack: one brand, "Mfg/Exp/B.No/MRP … incl. of all taxes", "each
+       tablet contains".
+
+     Not the amount of text: a box's back panel is long.
+  3. Pack → the bill (or the receiving draft). Bill → saved photo + review
+     → stock.
+  4. Match against the **full catalogue**, not only medicines in stock. A
+     medicine that isn't stocked yet offers "Add to stock".
+- **Text reading on Mac and Windows too** (owner: on-device only, no AI
+  service): macOS Vision (`VNRecognizeTextRequest`) and Windows
+  `Windows.Media.Ocr`, through a small platform channel feeding the same
+  `OcrPage`. A bill photo dropped on the PC then gets read like one taken
+  on the phone.
+- **Accuracy is measured, not assumed.** Keep a real-world test set: about
+  20 packs, 5 supplier bills and 10 barcodes/QRs, photographed on the
+  iPhone XR. Photos stay out of git; save the OCR text dumps as test
+  fixtures. Report the hit rate per kind after every scan change. Targets:
+  - codes: 99%
+  - pack → right medicine and strength: 90%+
+  - bill lines right before any edit: 80%+
+- Medicine catalogue: see `catalogue/README.md` (GST 5% + H1 fixes first,
+  then the full Indian catalogue).
+
 ## ⚠️ The project lives on an external drive now
 
 Mid-session the Mac ran low on storage and the owner moved `~/Developer`
