@@ -43,5 +43,47 @@ Grand Total 1,599.80''');
     test('an empty capture is treated as a pack, not a bill', () {
       expect(classifyCapture(const OcrPage([]), medicines), CaptureKind.pack);
     });
+
+    test('the long back panel of a carton is still a pack', () {
+      final page = OcrPage.fromText('''
+AUGMENTIN 625 DUO
+Amoxycillin and Potassium Clavulanate Tablets IP
+Each film coated tablet contains:
+Amoxycillin Trihydrate IP eq. to Amoxycillin 500 mg
+Potassium Clavulanate Diluted IP eq. to Clavulanic Acid 125 mg
+Excipients q.s.
+Colours: Titanium Dioxide IP
+Dosage: As directed by the Physician.
+Store in a cool, dry place below 25°C.
+Protect from light and moisture.
+Keep out of the reach of children.
+SCHEDULE H PRESCRIPTION DRUG - CAUTION
+Not to be sold by retail without the prescription of a Registered Medical Practitioner.
+B.No. B4011Z  Mfg. 03/2025  Exp. 02/2027
+M.R.P. Rs. 223.42 per strip of 10 tablets (Incl. of all taxes)
+Manufactured by: GlaxoSmithKline Pharmaceuticals Ltd.
+Mfg. Lic. No. 25-123/2010''');
+      expect(page.rows().length, greaterThan(10));
+      expect(classifyCapture(page, medicines), CaptureKind.pack);
+    });
+
+    test('a short bill whose lines were not readable is still a bill by its markings', () {
+      final page = OcrPage.fromText('''
+NEW BHARAT MEDICAL AGENCIES
+GSTIN 23ABCDE1234F1Z5
+TAX INVOICE  Inv No. NB/1102
+Qty  Rate  Amount
+Grand Total 4,512.00''');
+      expect(classifyCapture(page, medicines), CaptureKind.supplierBill);
+    });
+
+    test('the store\'s own GSTIN (printed as the buyer) does not make a pack a bill', () {
+      final page = OcrPage.fromText('''
+Pan 40
+Pantoprazole Gastro-resistant Tablets IP
+Each enteric coated tablet contains Pantoprazole Sodium eq. to Pantoprazole 40 mg
+23ABCDE1234F1Z5''');
+      expect(classifyCapture(page, medicines, ownGstin: '23ABCDE1234F1Z5'), CaptureKind.pack);
+    });
   });
 }

@@ -13,6 +13,7 @@ import '../../domain/services/billing_calculator.dart';
 import '../../domain/services/pack_units.dart';
 import '../../domain/services/smart_scan_classifier.dart';
 import '../../domain/services/stock_summary.dart';
+import '../../platform/code_reader.dart';
 import '../../platform/device_features.dart';
 import '../../platform/scan_target_memory.dart';
 import '../../platform/text_reader.dart';
@@ -263,7 +264,7 @@ Future<void> openSmartScanner(BuildContext context, WidgetRef ref) => openContin
       title: 'Smart Scan',
       onScan: (raw) => handleScannedCode(context, ref, raw),
       header: const SmartScanHeader(),
-      onCapturePhoto: DeviceFeatures.cameraScanning ? () => smartPhotoCapture(context, ref) : null,
+      onCapturePhoto: DeviceFeatures.cameraScanning ? (path) => smartPhotoCapture(context, ref, photoPath: path) : null,
       pendingLabel: () {
         if (ref.read(scanModeProvider) == ScanMode.receiving) return 'Adding to draft…';
         final target = ref.read(scanTargetProvider);
@@ -289,12 +290,18 @@ class SmartScanHeader extends ConsumerWidget {
   }
 }
 
-/// Photographs whatever is in front of the camera, reads it on the device,
-/// and routes it: several parsed lines → a supplier bill, saved for review;
-/// otherwise → a single pack, matched and added to the bill. Returns null
-/// when the user cancelled (nothing to show), otherwise the result to
-/// animate on screen.
-Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref) async {
+/// Reads whatever was photographed, on the device, and routes it:
+///
+/// 1. a barcode / QR / DataMatrix anywhere in the photo is the most exact
+///    source (GS1 and Schedule H2 codes carry batch and expiry), so it is
+///    used first, exactly like a live scan;
+/// 2. otherwise the printed text decides: a supplier bill is saved for
+///    review, a pack is matched (brand + strength) and added to the bill.
+///
+/// [photoPath] is the photo the in-app camera just took; without it (no
+/// in-app camera) the system camera is opened. Returns null when the user
+/// cancelled (nothing to show), otherwise the result to animate on screen.
+Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref, {String? photoPath}) async {
   if (!DeviceFeatures.textReading) {
     // No on-device text reading here (Mac/Windows/web) — offer the camera
     // or an existing file, same as Purchases, and attach it as a supplier
@@ -304,14 +311,29 @@ Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref) asy
     if (saved && context.mounted) Navigator.of(context).pop(); // close Smart Scan behind the review screen
     return null;
   }
-  final photo = await ImagePicker().pickImage(source: ImageSource.camera, maxWidth: 2400, imageQuality: 93);
+  final photo = photoPath != null
+      ? XFile(photoPath)
+      : await ImagePicker().pickImage(source: ImageSource.camera, maxWidth: 2400, imageQuality: 93);
   if (photo == null || !context.mounted) return null;
+
+  final index = ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
+  final code = await readCodeFromPhoto(photo.path);
+  if (!context.mounted) return null;
+  if (code != null) {
+    final hit = resolveBarcode(code, index);
+    // A known code (or an expired one) is answered by the code itself. An
+    // unlinked code falls through to reading the pack's text, which can
+    // still name the medicine.
+    if (hit.stock != null || (hit.expiry != null && hit.expiry!.isBefore(DateTime.now()))) {
+      return handleScannedCode(context, ref, code);
+    }
+  }
+
   final page = await readTextFromPhoto(photo.path);
   if (!context.mounted) return null;
   if (page == null || page.isEmpty) {
     return const ScanFeedback('No printed text found. Hold it flat, in good light, and try again.', ok: false);
   }
-  final index = ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
   final medicines = index.values.map((s) => s.medicine).toList();
   final ownGstin = ref.read(storeProvider).valueOrNull?.gstin ?? '';
 

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../theme.dart';
+import 'smart_camera.dart';
 import '../widgets/common.dart' show friendlyError;
 
 /// What happened to one scan, shown over the camera.
@@ -50,8 +51,10 @@ const _formats = [
 ///
 /// [onCapturePhoto], when given, adds a shutter button for anything that
 /// isn't a barcode (a pack label, a supplier bill) — Smart Scan uses it to
-/// read and route a photo without leaving this screen. It returns null when
-/// the user cancelled (nothing to show).
+/// read and route a photo without leaving this screen. On a phone the photo
+/// is taken from the same live camera and its path is passed in; elsewhere
+/// the path is null and the callback picks a photo itself. It returns null
+/// when the user cancelled (nothing to show).
 ///
 /// [pendingLabel], when given, is shown while a scan is in flight — e.g.
 /// "Sending to Counter 1…" when a remote station is the target.
@@ -62,7 +65,7 @@ Future<void> openContinuousScanner(
   required String title,
   required Future<ScanFeedback> Function(String raw) onScan,
   Widget? header,
-  Future<ScanFeedback?> Function()? onCapturePhoto,
+  Future<ScanFeedback?> Function(String? photoPath)? onCapturePhoto,
   String Function()? pendingLabel,
   Future<void> Function(ScanFeedback sent)? onUndo,
 }) {
@@ -101,7 +104,7 @@ class _ScannerScreen extends StatefulWidget {
   final Future<ScanFeedback> Function(String raw)? onScan;
   final Widget? header;
   final bool single;
-  final Future<ScanFeedback?> Function()? onCapturePhoto;
+  final Future<ScanFeedback?> Function(String? photoPath)? onCapturePhoto;
   final String Function()? pendingLabel;
   final Future<void> Function(ScanFeedback sent)? onUndo;
 
@@ -123,6 +126,11 @@ class _ScannerScreenState extends State<_ScannerScreen> {
   int _burst = 0; // bumped on every success to retrigger the confirm animation
   int _shake = 0; // bumped on every failure to retrigger the shake
   int _feedbackSeq = 0; // bumped on every feedback to retrigger its entrance
+
+  /// The phone's own live camera (codes + photos in place), when Smart Scan
+  /// runs on a phone; otherwise [_controller]'s barcode scanner is used.
+  bool get _useSmartCamera => widget.onCapturePhoto != null && smartCameraAvailable;
+  SmartCameraHandle? _camera;
 
   // The 3-second undo window after a send.
   ScanFeedback? _undoable;
@@ -181,7 +189,11 @@ class _ScannerScreenState extends State<_ScannerScreen> {
 
   Future<void> _onDetect(BarcodeCapture capture) async {
     final raw = capture.barcodes.map((b) => b.rawValue).whereType<String>().where((v) => v.trim().isNotEmpty).firstOrNull;
-    if (raw == null || _busy || _done) return;
+    if (raw != null) await _onCode(raw);
+  }
+
+  Future<void> _onCode(String raw) async {
+    if (_busy || _done) return;
     final now = DateTime.now();
     if (raw == _lastCode && now.difference(_lastAt) < const Duration(milliseconds: 2500)) return;
     _lastCode = raw;
@@ -199,7 +211,14 @@ class _ScannerScreenState extends State<_ScannerScreen> {
   /// The shutter button: takes a photo for anything a barcode can't read.
   Future<void> _onCapture() async {
     if (_busy) return;
-    await _run(widget.onCapturePhoto!, isCapture: true);
+    await _run(() async {
+      String? path;
+      if (_useSmartCamera) {
+        path = await _camera?.takePhoto();
+        if (path == null) return const ScanFeedback('Could not take the photo — try again.', ok: false);
+      }
+      return widget.onCapturePhoto!(path);
+    }, isCapture: true);
   }
 
   /// Runs a scan/capture action: shows a "pending" state immediately (and
@@ -212,7 +231,7 @@ class _ScannerScreenState extends State<_ScannerScreen> {
   Future<void> _run(Future<ScanFeedback?> Function() action, {bool isCapture = false}) async {
     setState(() {
       _busy = true;
-      _pendingText = widget.pendingLabel?.call();
+      _pendingText = isCapture ? 'Reading…' : widget.pendingLabel?.call();
       _waitingForInternet = false;
     });
     _waitingTimer?.cancel();
@@ -268,13 +287,25 @@ class _ScannerScreenState extends State<_ScannerScreen> {
           IconButton(
             tooltip: 'Torch',
             icon: const Icon(PhosphorIconsRegular.flashlight),
-            onPressed: () => _controller.toggleTorch(),
+            onPressed: () => _useSmartCamera ? _camera?.toggleTorch() : _controller.toggleTorch(),
           ),
         ],
       ),
       body: Column(children: [
         Expanded(
           child: Stack(fit: StackFit.expand, children: [
+            if (_useSmartCamera)
+              buildSmartCamera(
+                onCode: _onCode,
+                onReady: (camera) => _camera = camera,
+                onError: (message) => Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(Space.xl),
+                    child: Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
+                  ),
+                ),
+              )
+            else
             MobileScanner(
               controller: _controller,
               onDetect: _onDetect,
@@ -314,7 +345,14 @@ class _ScannerScreenState extends State<_ScannerScreen> {
                 ]),
               ),
             IgnorePointer(child: Center(child: _ConfirmBurst(key: ValueKey(_burst), play: _burst > 0))),
-            if (widget.onCapturePhoto != null)
+            if (_useSmartCamera)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: Space.l,
+                child: Center(child: _ShutterButton(onPressed: _busy ? null : _onCapture)),
+              )
+            else if (widget.onCapturePhoto != null)
               Positioned(
                 right: Space.l,
                 bottom: Space.l,
@@ -342,7 +380,9 @@ class _ScannerScreenState extends State<_ScannerScreen> {
                   Text(
                       widget.single
                           ? 'Hold the barcode inside the frame.'
-                          : widget.onCapturePhoto != null
+                          : _useSmartCamera
+                              ? 'Point at a barcode — or tap the button for a pack or a bill.'
+                              : widget.onCapturePhoto != null
                               ? 'Point at a barcode, or tap the camera for a pack or a bill.'
                               : 'Scan packs one after another.',
                       style: text.bodyMedium?.copyWith(color: AppColors.muted))
@@ -497,6 +537,34 @@ class _ConfirmBurstState extends State<_ConfirmBurst> with SingleTickerProviderS
           ),
         );
       },
+    );
+  }
+}
+
+/// The round shutter of the in-app camera, like the system camera's.
+class _ShutterButton extends StatelessWidget {
+  const _ShutterButton({required this.onPressed});
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Photograph a pack or a bill',
+      child: GestureDetector(
+        onTap: onPressed,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 150),
+          opacity: onPressed == null ? 0.4 : 1,
+          child: Container(
+            width: 76,
+            height: 76,
+            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 4)),
+            padding: const EdgeInsets.all(5),
+            child: const DecoratedBox(decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white)),
+          ),
+        ),
+      ),
     );
   }
 }
