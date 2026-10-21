@@ -27,7 +27,8 @@ void main() {
       expect(m.catalogueId, m.id);
       expect(m.name.trim(), isNotEmpty);
       expect(m.unitsPerPack, greaterThanOrEqualTo(1), reason: m.name);
-      expect([0.0, 5.0, 12.0, 18.0], contains(m.gstRate), reason: m.name);
+      // The 12% slab was removed on 22-09-2025; medicines are 5% (or 0%).
+      expect([0.0, 5.0, 18.0], contains(m.gstRate), reason: m.name);
       expect(m.hsnCode, matches(RegExp(r'^\d{4,8}$')), reason: m.name);
       expect(e.referenceMrpPaise, greaterThan(0), reason: m.name);
     }
@@ -38,6 +39,24 @@ void main() {
       final hits = repo.search(name);
       for (final e in hits) {
         expect(e.medicine.scheduleType, isNot(ScheduleType.otc), reason: e.medicine.name);
+      }
+    }
+  });
+
+  test('every Schedule H1 salt (GSR 588(E)) is marked H1, never plain H', () {
+    const h1Salts = [
+      'cefixime', 'ceftriaxone', 'cefpodoxime', 'cefotaxime', 'cefdinir', 'cefepime',
+      'cefoperazone', 'ceftazidime', 'levofloxacin', 'moxifloxacin', 'alprazolam',
+      'zolpidem', 'tramadol', 'diazepam', 'codeine', 'isoniazid', 'rifampicin',
+      'meropenem', 'imipenem', 'pentazocine', 'buprenorphine',
+    ];
+    for (final e in all) {
+      final generic = e.medicine.genericName.toLowerCase();
+      for (final salt in h1Salts) {
+        if (generic.contains(salt)) {
+          expect(e.medicine.scheduleType, anyOf(ScheduleType.scheduleH1, ScheduleType.scheduleX),
+              reason: '${e.medicine.name} contains $salt');
+        }
       }
     }
   });

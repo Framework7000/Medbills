@@ -51,7 +51,7 @@ class _MedicinePickerState extends ConsumerState<_MedicinePicker> {
       packSizeLabel: '',
       unitsPerPack: 1,
       hsnCode: '3004',
-      gstRate: 12.0,
+      gstRate: 5.0,
       scheduleType: ScheduleType.unknown,
       minStock: 0,
       shelfLocation: '',

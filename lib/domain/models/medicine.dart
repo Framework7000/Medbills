@@ -114,7 +114,7 @@ class Medicine {
       packSizeLabel: packLabel,
       unitsPerPack: storedUnits > 0 ? storedUnits : PackUnits.fromLabel(packLabel),
       hsnCode: readString(map['hsnCode']),
-      gstRate: readDouble(map['gstRate'], 12.0),
+      gstRate: readDouble(map['gstRate'], 5.0),
       scheduleType: ScheduleType.fromString(map['scheduleType'] as String?),
       barcode: (map['barcode'] as String?)?.trim().isEmpty ?? true ? null : map['barcode'] as String,
       minStock: readInt(map['minStock']),

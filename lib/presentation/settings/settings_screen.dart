@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/auth_service.dart';
 import '../../domain/models/app_user.dart';
 import '../../domain/models/store_profile.dart';
+import '../../domain/services/master_corrections.dart';
 import '../../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -106,6 +107,7 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+              if (user.role.canEditStore) const _MasterCorrectionsTile(),
               const SizedBox(height: Space.l),
               Text('Account', style: text.titleMedium),
               const SizedBox(height: Space.s),
@@ -352,5 +354,83 @@ class _PasswordDialogState extends ConsumerState<_PasswordDialog> {
         FilledButton(onPressed: _busy ? null : _save, child: const Text('Change')),
       ],
     );
+  }
+}
+
+/// Owner-only: brings the store's medicine master up to date after a rule
+/// change (GST 12% → 5% from 22-09-2025, Schedule H1 corrections). Hidden
+/// when nothing needs changing. Each save writes an audit entry; past bills
+/// are untouched.
+class _MasterCorrectionsTile extends ConsumerStatefulWidget {
+  const _MasterCorrectionsTile();
+
+  @override
+  ConsumerState<_MasterCorrectionsTile> createState() => _MasterCorrectionsTileState();
+}
+
+class _MasterCorrectionsTileState extends ConsumerState<_MasterCorrectionsTile> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final medicines = ref.watch(medicinesProvider).valueOrNull;
+    if (medicines == null) return const SizedBox.shrink();
+    final catalogue = ref.watch(catalogueProvider);
+    final fixes = findMasterCorrections(medicines, (id) => catalogue.byId(id)?.medicine);
+    if (fixes.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: Space.s),
+      child: Card(
+        child: ListTile(
+          leading: const Icon(PhosphorIconsRegular.arrowsClockwise, color: AppColors.danger),
+          title: Text('Update ${fixes.length} medicine${fixes.length == 1 ? '' : 's'}'),
+          subtitle: const Text('New GST rates (from 22 Sep 2025) and Schedule H1 corrections.'),
+          trailing: _busy
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(PhosphorIconsRegular.caretRight),
+          onTap: _busy ? null : () => _review(fixes),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _review(List<MasterCorrection> fixes) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Update ${fixes.length} medicines?'),
+        content: SizedBox(
+          width: 480,
+          height: 360,
+          child: ListView(children: [
+            for (final f in fixes)
+              ListTile(
+                dense: true,
+                title: Text(f.current.name, overflow: TextOverflow.ellipsis),
+                subtitle: Text(f.summary),
+              ),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Update all')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _busy = true);
+    final repo = ref.read(repositoryProvider)!;
+    var done = 0;
+    try {
+      for (final f in fixes) {
+        await repo.saveMedicine(f.corrected);
+        done++;
+      }
+      if (mounted) showMessage(context, 'Updated $done medicines. Past bills are unchanged.');
+    } catch (e) {
+      if (mounted) showMessage(context, 'Updated $done of ${fixes.length}. ${friendlyError(e)}', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 }

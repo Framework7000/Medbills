@@ -47,7 +47,7 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
       text: '${(widget.initial.minStock / (widget.initial.unitsPerPack < 1 ? 1 : widget.initial.unitsPerPack)).ceil()}');
   late final _shelf = TextEditingController(text: widget.initial.shelfLocation);
   late final _barcode = TextEditingController(text: widget.initial.barcode ?? '');
-  late double _gst = gstRates.contains(widget.initial.gstRate) ? widget.initial.gstRate : 12.0;
+  late double _gst = gstRates.contains(widget.initial.gstRate) ? widget.initial.gstRate : 5.0;
   late ScheduleType _schedule = widget.initial.scheduleType;
   bool _busy = false;
 
@@ -165,7 +165,7 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'GST rate'),
                 items: [for (final r in gstRates) DropdownMenuItem(value: r, child: Text('${r.toStringAsFixed(0)}%'))],
-                onChanged: (v) => setState(() => _gst = v ?? 12.0),
+                onChanged: (v) => setState(() => _gst = v ?? 5.0),
               ),
             ]),
             row([
