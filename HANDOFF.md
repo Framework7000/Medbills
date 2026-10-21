@@ -3,6 +3,65 @@
 Read this first, then `README.md`. Branch: `claude/medbills-repo-t8ueeh`
 (GitHub: Framework7000/Medbills). Everything below is pushed.
 
+## START HERE — state on 21 Oct 2026 (read this first)
+
+The owner now chats in **one place: the Claude session running on the Mac**
+(Remote Control, folder `/Users/aryansingh/MedbillsApp`, a fresh clone).
+That session is the builder and the manager: it codes, tests, pushes,
+checks CI, and installs on the iPhone XR. Keep this file current, because
+it is the project's memory.
+
+**Done and on GitHub (CI green, release `latest-build` built from 7bc251e):**
+- `30ae956`: GST 12% → 5% (rates from 22-09-2025) and 8 medicines that are
+  legally Schedule H1 (cefixime, ceftriaxone, cefpodoxime, levofloxacin,
+  moxifloxacin) fixed. Settings has an owner-only "Update N medicines"
+  tile that fixes the live store's medicine documents, with audit entries.
+  It has not been tapped yet: ask the owner to do it once.
+- `7bc251e`: Smart Scan on the phone is one in-app camera.
+  - `smart_camera_native.dart`: `camera` + ML Kit barcode scanning, live
+    codes, the photo taken in place, tap-to-focus, torch.
+  - Every photo is checked for a code first (`platform/code_reader*`).
+  - `classifyCapture` scores real bill-vs-pack markings.
+  - Compiles for iOS and Android in CI, but has **not been tried on a real
+    phone yet**.
+- `catalogue/` + `scripts/catalogue/build_catalogue.py`: official
+  schedule/GST tables, salt aliases and an import builder (self-test passes,
+  250k rows ≈ 1 min). See `catalogue/README.md`.
+
+**Next, in order:**
+1. **Install on the iPhone XR and launch it.**
+   - `git pull` → `flutter pub get` → `cd ios && pod install`, then
+     `flutter run --release -d <XR>`.
+   - Signing: free Apple ID team `Z9MZ6L5GMS`, not committed.
+   - **The Flutter SDK lived on the external drive**
+     (`/Volumes/External/developer/flutter-3.47.4`). If `flutter` isn't
+     found, the drive is unplugged: ask the owner to plug it in, or, if
+     there are 10+ GB free, install Flutter 3.47.4 in `~`.
+   - Check `df -h ~` first; this Mac has run out of storage before.
+2. **Owner tests Smart Scan with real items:**
+   - barcode live;
+   - QR live;
+   - pack photo (right medicine and strength);
+   - back of a box → pack;
+   - supplier bill → review screen, lines right;
+   - shutter stays in-app.
+
+   Fix what fails. Save OCR text of real packs and bills as test fixtures
+   (not the photos). Targets: codes 99%, packs 90%+, bill lines 80%+.
+3. Owner taps Settings → Update medicines.
+4. Windows: owner installs `MedBills-Setup.exe` from the release on the
+   shop laptop and makes one test bill.
+5. **All Indian medicines:** owner downloads the Kaggle "A-Z Medicine
+   Dataset of India" CSV (check its licence). Then follow
+   `catalogue/README.md` steps 3–7. Never write the big catalogue to
+   Firestore.
+6. Optional: on-device text reading on Mac/Windows (macOS Vision,
+   Windows.Media.Ocr) so bill photos dropped on the PC are read.
+
+The owner wants: short, plain answers; "only what's needed"; the Windows
+app plus the iPhone as scanner working reliably. No Apple Developer account,
+so the iPhone app must be re-installed every 7 days.
+
 ## Product shape (owner, Oct 2026 — this decides every trade-off)
 
 - **Windows laptop = the main app**: billing counter, stock, purchases,
