@@ -121,6 +121,7 @@ class BillDraft {
     String? supplierDrugLicence,
     String? invoiceNumber,
     DateTime? invoiceDate,
+    int? billTotalPaise,
     List<BillDraftLine>? lines,
   }) {
     return BillDraft(
@@ -129,7 +130,7 @@ class BillDraft {
       supplierDrugLicence: supplierDrugLicence ?? this.supplierDrugLicence,
       invoiceNumber: invoiceNumber ?? this.invoiceNumber,
       invoiceDate: invoiceDate ?? this.invoiceDate,
-      billTotalPaise: billTotalPaise,
+      billTotalPaise: billTotalPaise ?? this.billTotalPaise,
       lines: lines ?? this.lines,
     );
   }

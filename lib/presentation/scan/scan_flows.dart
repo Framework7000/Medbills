@@ -6,10 +6,10 @@ import 'package:intl/intl.dart';
 import '../../domain/models/batch.dart';
 import '../../domain/models/medicine.dart';
 import '../../domain/services/billing_calculator.dart';
-import '../../domain/services/gs1_parser.dart';
 import '../../domain/services/medicine_matcher.dart';
 import '../../domain/services/ocr_text.dart';
 import '../../domain/services/pack_label_parser.dart';
+import '../../domain/services/scanned_code.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
 import '../../platform/text_reader.dart';
@@ -27,24 +27,30 @@ class BarcodeHit {
 
 String _digits(String s) => s.replaceFirst(RegExp(r'^0+'), '');
 
-/// Matches EAN/UPC, GS1 DataMatrix (GTIN + batch + expiry) and the text
-/// QR codes printed on Indian packs (brand, batch, expiry in plain text).
+/// Matches EAN/UPC, GS1 DataMatrix / Digital Link (GTIN + batch + expiry)
+/// and the Schedule H2 QR codes printed on Indian packs (brand, batch,
+/// expiry as labelled text) — see [ScannedCode].
 BarcodeHit resolveBarcode(String raw, Map<String, StockSummary> index) {
-  final parsed = Gs1Parser.parse(raw);
-  final gtin = parsed.gtin;
+  final code = ScannedCode.decode(raw);
+  final pack = code is PackCode ? code : null;
+  final gtin = pack?.gtin;
   StockSummary? hit;
   for (final s in index.values) {
-    final code = s.medicine.barcode;
-    if (code == null || code.isEmpty) continue;
-    if (code == raw || (gtin != null && _digits(code) == _digits(gtin))) {
+    final linked = s.medicine.barcode;
+    if (linked == null || linked.isEmpty) continue;
+    if (linked == raw || (gtin != null && _digits(linked) == _digits(gtin))) {
       hit = s;
       break;
     }
   }
-  var batch = parsed.batchNumber;
-  var expiry = parsed.expiryDate;
-  if (hit == null && raw.length > 14) {
-    // A text QR code: read it like a pack label.
+  var batch = pack?.batch;
+  var expiry = pack?.expiry;
+  final named = [pack?.brand, pack?.genericName].whereType<String>().join(' ');
+  if (hit == null && named.isNotEmpty) {
+    final match = MedicineMatcher.match(named, index.values.map((s) => s.medicine));
+    if (match.isConfident) hit = index[match.best!.medicine.id];
+  } else if (hit == null && code is TextCode && raw.length > 14) {
+    // Unlabelled text: read it like a pack label.
     final match = MedicineMatcher.match(raw, index.values.map((s) => s.medicine));
     if (match.isConfident) hit = index[match.best!.medicine.id];
     final info = PackLabelParser.parse(raw);
@@ -52,6 +58,14 @@ BarcodeHit resolveBarcode(String raw, Map<String, StockSummary> index) {
     if (expiry == null && info.hasExpiry) expiry = Batch.endOfMonth(info.expiryYear!, info.expiryMonth!);
   }
   return BarcodeHit(raw: raw, stock: hit, batchNumber: batch, expiry: expiry);
+}
+
+/// What to save on a medicine when linking a scanned code: the product
+/// number (GTIN) when the code has one — a GS1 / H2 code also carries a
+/// per-pack serial, so the raw text differs on every pack — else the code.
+String linkableCode(String raw) {
+  final code = ScannedCode.decode(raw);
+  return (code is PackCode ? code.gtin : null) ?? raw.trim();
 }
 
 /// The batches to bill from: the scanned batch when it is on the shelf and

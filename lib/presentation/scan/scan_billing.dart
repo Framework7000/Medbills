@@ -11,6 +11,7 @@ import '../../domain/models/bill_scan.dart';
 import '../../domain/models/scan_link.dart';
 import '../../domain/services/billing_calculator.dart';
 import '../../domain/services/pack_units.dart';
+import '../../domain/services/scanned_code.dart';
 import '../../domain/services/smart_scan_classifier.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../platform/code_reader.dart';
@@ -23,6 +24,7 @@ import '../purchases/medicine_picker.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import 'barcode_scanner_screen.dart';
+import 'scan_details.dart';
 import 'scan_flows.dart';
 
 /// On a phone: the counter that camera scans are sent to (null = this
@@ -155,23 +157,41 @@ Future<ScanFeedback> _sendOrAddToBill(
   return addScannedToBill(ref, stock, batchNumber: batchNumber, requestedUnits: units);
 }
 
-/// Handles one scanned code: adds it to this device's bill, or sends it to
-/// the chosen counter. [toCounter] false always bills here (a counter's own
-/// USB scanner).
+/// Handles one scanned code. A medicine is added to this device's bill or
+/// sent to the chosen counter; anything else is read out plainly instead of
+/// failing: a supplier bill's GST e-invoice QR (supplier, invoice no., date,
+/// total), an unlinked pack's code (batch, expiry, what it names), or plain
+/// text — each with a Details sheet. [toCounter] false always bills here (a
+/// counter's own USB scanner).
 Future<ScanFeedback> handleScannedCode(BuildContext context, WidgetRef ref, String raw, {bool toCounter = true}) async {
+  final code = ScannedCode.decode(raw);
+  void details({VoidCallback? onLink}) => showScannedCodeDetails(context, ref, code, onLink: onLink);
+
+  if (code is EInvoiceCode) {
+    return ScanFeedback('Supplier bill · ${describeScannedCode(code)}',
+        actionLabel: 'Details', onAction: details);
+  }
   final index = ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
   final hit = resolveBarcode(raw, index);
   if (hit.expiry != null && hit.expiry!.isBefore(DateTime.now())) {
-    return ScanFeedback('This pack is EXPIRED (${DateFormat('MM/yy').format(hit.expiry!)}). Do not sell it.', ok: false);
+    return ScanFeedback(
+      '${hit.stock?.medicine.name ?? 'This pack'} is EXPIRED (${DateFormat('MM/yy').format(hit.expiry!)}). Do not sell it.',
+      ok: false,
+      actionLabel: 'Details',
+      onAction: details,
+    );
   }
   final stock = hit.stock;
   if (stock == null) {
+    if (code is TextCode) {
+      return ScanFeedback('Read: ${describeScannedCode(code)}', actionLabel: 'Details', onAction: details);
+    }
     final manager = ref.read(currentUserProvider)?.role.canManageStock ?? false;
     return ScanFeedback(
-      manager ? 'Barcode $raw isn\'t linked to a medicine yet.' : 'Barcode $raw isn\'t linked to a medicine yet — ask the pharmacist.',
+      '${describeScannedCode(code)} — not linked to a medicine yet${manager ? '' : ' (ask the pharmacist)'}.',
       ok: false,
-      actionLabel: manager ? 'Link' : null,
-      onAction: manager ? () => linkBarcode(context, ref, raw) : null,
+      actionLabel: 'Details',
+      onAction: () => details(onLink: manager ? () => linkBarcode(context, ref, raw) : null),
     );
   }
   return _sendOrAddToBill(ref,
@@ -239,7 +259,7 @@ Future<void> linkBarcode(BuildContext context, WidgetRef ref, String raw) async 
   final picked = await pickMedicine(context);
   if (picked == null || !context.mounted) return;
   try {
-    await ref.read(repositoryProvider)!.saveMedicine(picked.medicine.copyWith(barcode: raw));
+    await ref.read(repositoryProvider)!.saveMedicine(picked.medicine.copyWith(barcode: linkableCode(raw)));
     if (context.mounted) showMessage(context, 'Barcode linked to ${picked.medicine.name}. Scan it again to add it.');
   } catch (e) {
     if (context.mounted) showMessage(context, friendlyError(e), error: true);
@@ -319,7 +339,8 @@ Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref, {St
   final index = ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
   final code = await readCodeFromPhoto(photo.path);
   if (!context.mounted) return null;
-  if (code != null) {
+  final eInvoice = code == null ? null : switch (ScannedCode.decode(code)) { final EInvoiceCode e => e, _ => null };
+  if (code != null && eInvoice == null) {
     final hit = resolveBarcode(code, index);
     // A known code (or an expired one) is answered by the code itself. An
     // unlinked code falls through to reading the pack's text, which can
@@ -331,14 +352,15 @@ Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref, {St
 
   final page = await readTextFromPhoto(photo.path);
   if (!context.mounted) return null;
-  if (page == null || page.isEmpty) {
+  if ((page == null || page.isEmpty) && eInvoice == null) {
     return const ScanFeedback('No printed text found. Hold it flat, in good light, and try again.', ok: false);
   }
   final medicines = index.values.map((s) => s.medicine).toList();
   final ownGstin = ref.read(storeProvider).valueOrNull?.gstin ?? '';
 
-  if (classifyCapture(page, medicines, ownGstin: ownGstin) == CaptureKind.supplierBill) {
-    final saved = await receiveBillPhoto(context, ref, photo, page: page);
+  // A GST e-invoice QR in the photo settles it: this is a supplier bill.
+  if (eInvoice != null || classifyCapture(page!, medicines, ownGstin: ownGstin) == CaptureKind.supplierBill) {
+    final saved = await receiveBillPhoto(context, ref, photo, page: page, eInvoice: eInvoice);
     // Receiving a bill opens its own review screen — close Smart Scan behind
     // it too, rather than leaving the camera open underneath.
     if (saved && context.mounted) Navigator.of(context).pop();

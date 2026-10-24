@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../domain/services/scanned_code.dart';
 import '../../domain/models/batch.dart';
 import '../../domain/models/bill_scan.dart';
 import '../../domain/models/medicine.dart';
@@ -77,7 +78,11 @@ Future<bool> captureSupplierBill(BuildContext context, WidgetRef ref) async {
 /// Shared by [captureSupplierBill] and Smart Scan — Smart Scan has usually
 /// already read the photo once (to decide it's a bill, not a pack), so it
 /// passes [page] to avoid reading it twice. Returns whether the bill was saved.
-Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file, {OcrPage? page}) async {
+/// [eInvoice], when the photo also showed the bill's GST e-invoice QR, is
+/// the exact supplier GSTIN, invoice number, date and total — they replace
+/// what text reading found for those fields.
+Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file,
+    {OcrPage? page, EInvoiceCode? eInvoice}) async {
   final repo = ref.read(repositoryProvider)!;
   final ownGstin = ref.read(storeProvider).valueOrNull?.gstin ?? '';
   final medicines = _knownMedicines(ref);
@@ -101,9 +106,17 @@ Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file, {
     final bytes = await file.readAsBytes();
     final jpeg = await compressPhoto(bytes);
     final ocrPage = page ?? (DeviceFeatures.textReading ? await readTextFromPhoto(file.path) : null);
-    final draft = ocrPage == null || ocrPage.isEmpty
+    var draft = ocrPage == null || ocrPage.isEmpty
         ? const BillDraft()
         : SupplierBillParser.parse(ocrPage, medicines, ownGstin: ownGstin);
+    if (eInvoice != null) {
+      draft = draft.copyWith(
+        supplierGstin: eInvoice.sellerGstin.isEmpty ? null : eInvoice.sellerGstin,
+        invoiceNumber: eInvoice.docNo.isEmpty ? null : eInvoice.docNo,
+        invoiceDate: eInvoice.docDate,
+        billTotalPaise: eInvoice.totalPaise,
+      );
+    }
     scan = await repo.createBillScan(draft: draft, ocrText: ocrPage?.text ?? '', jpeg: jpeg);
   } catch (e) {
     failure = e;
