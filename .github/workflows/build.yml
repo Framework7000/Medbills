@@ -55,6 +55,47 @@ jobs:
           $version = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" windows\installer\medbills.iss
           Copy-Item dist\MedBills-Setup.exe MedBills-Setup.exe
+      # The owner's brother only double-clicks MedBills-Setup.exe, so check
+      # exactly that, five times over, on a clean Windows machine: silent
+      # install, the app opens and keeps running (screenshot kept as proof),
+      # silent uninstall leaves nothing behind.
+      - name: Install, open and uninstall MedBills 5 times
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\MedBills'
+          $exe = Join-Path $app 'MedBills.exe'
+          New-Item -ItemType Directory -Force screenshots | Out-Null
+          for ($i = 1; $i -le 5; $i++) {
+            Write-Host "=== Round $i of 5 ==="
+            $setup = Start-Process .\MedBills-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/TASKS=desktopicon' -PassThru -Wait
+            if ($setup.ExitCode -ne 0) { throw "Round ${i}: installer exited with $($setup.ExitCode)" }
+            if (-not (Test-Path $exe)) { throw "Round ${i}: MedBills.exe was not installed at $exe" }
+            $shortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'MedBills.lnk'
+            if (-not (Test-Path $shortcut)) { throw "Round ${i}: no desktop icon" }
+            $run = Start-Process $exe -PassThru
+            Start-Sleep -Seconds 25
+            if ($run.HasExited) { throw "Round ${i}: MedBills closed by itself (exit code $($run.ExitCode))" }
+            $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $shot = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
+            [System.Drawing.Graphics]::FromImage($shot).CopyFromScreen($screen.Location, [System.Drawing.Point]::Empty, $screen.Size)
+            $shot.Save("screenshots\round-$i.png")
+            Write-Host "Round ${i}: running after 25 s (memory $([math]::Round($run.WorkingSet64 / 1MB)) MB)"
+            Stop-Process -Id $run.Id -Force
+            Start-Sleep -Seconds 2
+            $un = Start-Process (Join-Path $app 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru -Wait
+            if ($un.ExitCode -ne 0) { throw "Round ${i}: uninstaller exited with $($un.ExitCode)" }
+            # The uninstaller finishes from a temporary copy; give it time.
+            for ($w = 0; $w -lt 30 -and (Test-Path $exe); $w++) { Start-Sleep -Seconds 1 }
+            if (Test-Path $exe) { throw "Round ${i}: uninstall left MedBills.exe behind" }
+            Write-Host "Round ${i}: OK"
+          }
+          Write-Host "All 5 rounds passed."
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-install-check-screenshots
+          path: screenshots
       - name: Portable zip
         shell: pwsh
         run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath MedBills-Windows-portable.zip
