@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/auth_service.dart';
@@ -7,6 +9,7 @@ import '../data/firestore_pharmacy_repository.dart';
 import '../data/local_pharmacy_repository.dart';
 import '../data/pharmacy_repository.dart';
 import '../data/repositories/global_catalogue_repository.dart';
+import '../data/repositories/india_catalogue.dart';
 import '../domain/models/app_user.dart';
 import '../domain/models/batch.dart';
 import '../domain/models/bill_scan.dart';
@@ -118,6 +121,19 @@ final stockIndexProvider = Provider<AsyncValue<Map<String, StockSummary>>>((ref)
 });
 
 final catalogueProvider = Provider<GlobalCatalogueRepository>((ref) => GlobalCatalogueRepository());
+
+/// Every medicine in India (≈2.46 lakh, bundled with the app), loaded in the
+/// background the first time something needs it. Null if it couldn't load —
+/// the store's own medicines and the checked catalogue still work.
+final indiaCatalogueProvider = FutureProvider<IndiaCatalogue?>((ref) async {
+  try {
+    final gz = await rootBundle.load('assets/catalogue/india.tsv.gz');
+    final aliases = await rootBundle.loadString('assets/catalogue/aliases.tsv');
+    return await compute(IndiaCatalogue.fromAssets, (gz.buffer.asUint8List(gz.offsetInBytes, gz.lengthInBytes), aliases));
+  } catch (_) {
+    return null;
+  }
+});
 
 /// This device's bill in progress. Not shared: each counter has its own.
 /// Cleared when the signed-in user changes.

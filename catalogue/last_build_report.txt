@@ -1,0 +1,44 @@
+entries: 245894
+schedule: H1=34387, UNKNOWN=211461, X=46
+gst: 5%=245894
+top unresolved salts (add to schedule_h.csv or salt_aliases.csv):
+  15085  paracetamol
+  8771  domperidone
+  8726  aceclofenac
+  7800  amoxicillin
+  7590  metformin
+  7223  rabeprazole
+  5806  ofloxacin
+  5805  pantoprazole
+  5704  clavulanic acid
+  5607  levocetirizine
+  5485  diclofenac
+  5127  glimepiride
+  4486  montelukast
+  4327  azithromycin
+  4201  telmisartan
+  3197  nimesulide
+  3146  cefuroxime
+  2664  amlodipine
+  2520  itraconazole
+  2489  mecobalamin
+  2456  ornidazole
+  2440  rosuvastatin
+  2365  atorvastatin
+  2348  omeprazole
+  2331  mefenamic acid
+  2129  ondansetron
+  2071  thiocolchicoside
+  2013  deflazacort
+  1962  etoricoxib
+  1796  serratiopeptidase
+  1771  chlorphenamine
+  1766  amikacin
+  1716  levosulpiride
+  1683  ambroxol /
+  1648  ciprofloxacin
+  1589  chlorpheniramine /
+  1573  hydrochlorothiazide
+  1554  ambroxol
+  1552  metoprolol
+  1483  fexofenadine

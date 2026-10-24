@@ -180,7 +180,12 @@ class _ScanDetailsSheet extends ConsumerWidget {
     if (named.isEmpty) return null;
     final all = ref.read(catalogueProvider).search('').map((e) => e.medicine);
     final match = MedicineMatcher.match(named, all);
-    return match.isConfident ? match.best!.medicine : null;
+    if (match.isConfident) return match.best!.medicine;
+    // Not in the checked list: look the printed brand up among all
+    // medicines in India.
+    final brand = pack.brand;
+    final india = ref.watch(indiaCatalogueProvider).valueOrNull;
+    return brand == null ? null : india?.byBrand(brand)?.medicine;
   }
 }
 

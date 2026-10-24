@@ -61,6 +61,13 @@ class _MedicinePickerState extends ConsumerState<_MedicinePicker> {
     if (created != null && mounted) Navigator.pop(context, PickedMedicine(created, 0));
   }
 
+  /// A medicine from the all-India list isn't hand-checked: the pharmacist
+  /// confirms its schedule, GST and pack before it joins the store.
+  Future<void> _confirmFromIndia(CatalogueEntry e) async {
+    final confirmed = await showMedicineEditor(context, initial: e.medicine, isNew: true, save: false);
+    if (confirmed != null && mounted) Navigator.pop(context, PickedMedicine(confirmed, e.referenceMrpPaise));
+  }
+
   @override
   Widget build(BuildContext context) {
     final index = ref.watch(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
@@ -74,6 +81,14 @@ class _MedicinePickerState extends ConsumerState<_MedicinePicker> {
     final List<CatalogueEntry> catalogueMatches = q.isEmpty
         ? const []
         : catalogue.search(q).where((e) => !inStoreCatalogueIds.contains(e.medicine.id)).toList();
+    // All medicines in India, once the query is specific enough to be useful.
+    final india = ref.watch(indiaCatalogueProvider);
+    final shownNames = {...storeMatches.map((s) => s.medicine.name.toLowerCase()), ...catalogueMatches.map((e) => e.medicine.name.toLowerCase())};
+    final List<CatalogueEntry> indiaMatches = q.length < 3
+        ? const []
+        : (india.valueOrNull?.search(q) ?? const <CatalogueEntry>[])
+            .where((e) => !inStoreCatalogueIds.contains(e.medicine.id) && !shownNames.contains(e.medicine.name.toLowerCase()))
+            .toList();
     final text = Theme.of(context).textTheme;
 
     return AlertDialog(
@@ -119,7 +134,26 @@ class _MedicinePickerState extends ConsumerState<_MedicinePicker> {
                   trailing: const Icon(PhosphorIconsRegular.plusCircle),
                   onTap: () => Navigator.pop(context, PickedMedicine(e.medicine, e.referenceMrpPaise)),
                 ),
-              if (storeMatches.isEmpty && catalogueMatches.isEmpty)
+              if (indiaMatches.isNotEmpty) Padding(
+                padding: const EdgeInsets.symmetric(vertical: Space.s),
+                child: Text('All medicines in India (check before first sale)',
+                    style: text.labelLarge?.copyWith(color: AppColors.muted)),
+              ),
+              for (final e in indiaMatches)
+                ListTile(
+                  dense: true,
+                  title: Text(e.medicine.name, overflow: TextOverflow.ellipsis),
+                  subtitle: Text('${e.medicine.genericName} · ${e.medicine.manufacturer} · ${e.medicine.packSizeLabel}',
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                  trailing: const Icon(PhosphorIconsRegular.plusCircle),
+                  onTap: () => _confirmFromIndia(e),
+                ),
+              if (q.length >= 3 && india.isLoading)
+                const Padding(
+                  padding: EdgeInsets.all(Space.m),
+                  child: Text('Loading all medicines in India…', textAlign: TextAlign.center),
+                ),
+              if (storeMatches.isEmpty && catalogueMatches.isEmpty && indiaMatches.isEmpty && !india.isLoading)
                 const Padding(
                   padding: EdgeInsets.all(Space.xl),
                   child: Text('Nothing found. Create it as a new medicine.', textAlign: TextAlign.center),

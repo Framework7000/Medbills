@@ -1,5 +1,27 @@
 # Medicine catalogue — plan, sources, rules
 
+**Status (24 Oct 2026):** built and in the app.
+- `assets/catalogue/india.tsv.gz` holds 2,45,894 medicines from the Indian
+  Medicine Dataset (github.com/junioralive/Indian-Medicine-Dataset, MIT; same
+  data as the Kaggle A-Z set; prices Nov 2022). Licence:
+  `assets/catalogue/NOTICE.txt`.
+- Schedules: H1 = 34,387 and X = 46 (official lists, per salt; one H1/X salt
+  makes a combination H1/X). Everything else is UNKNOWN, because the full
+  Schedule H list couldn't be fetched from this environment. Adding
+  `catalogue/reference/schedule_h.csv` and rebuilding classifies the rest.
+- GST is 5% throughout.
+- In the app:
+  - `IndiaCatalogue` (`lib/data/repositories/india_catalogue.dart`) is
+    loaded in the background by `indiaCatalogueProvider`.
+  - Purchases → Choose medicine has an "All medicines in India" section;
+    picking one opens the editor so the pharmacist confirms it.
+  - The scan Details sheet looks up a printed brand.
+- Rebuild:
+  `python3 scripts/catalogue/build_catalogue.py --brands <csv> --out assets/catalogue`.
+- Known source errors exist. For example, "Clifpred 4mg" is listed as
+  methylphenidate (it is methylprednisolone), so it came out as Schedule X:
+  strict, not unsafe. That is why each medicine is confirmed once.
+
 Goal: every medicine sold in India is searchable in MedBills by any name it
 goes by (brand, generic or old British name, short form or misspelling), with
 schedule, GST, HSN, pack and reference MRP filled in. Owner's request,

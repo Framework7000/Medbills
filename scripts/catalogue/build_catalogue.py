@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the bundled medicine catalogue (assets/catalogue/catalogue.json.gz).
+"""Build the bundled medicine catalogue (assets/catalogue/india.tsv.gz + aliases.tsv).
 
 Inputs (download them yourself — see catalogue/README.md):
   --brands      CSV of Indian branded medicines (e.g. Kaggle "A-Z Medicine
@@ -154,10 +154,17 @@ RANK = {'OTC': 0, 'H': 1, 'H1': 2, 'X': 3, 'UNKNOWN': 4}
 
 
 def classify(salts, ref):
-    """Strictest schedule across salts; any unresolved salt → UNKNOWN."""
+    """Strictest schedule across salts. One X or H1 salt makes the whole
+    product X / H1 even if another salt is unresolved (the X list is
+    complete, so an unresolved salt can't be stricter than H1). Otherwise
+    any unresolved salt → UNKNOWN."""
     if not salts:
         return 'UNKNOWN'
     found = [ref.schedule_of(s) for s in salts]
+    if 'X' in found:
+        return 'X'
+    if 'H1' in found:
+        return 'H1'
     if 'UNKNOWN' in found:
         return 'UNKNOWN'
     return max(found, key=RANK.get)
@@ -276,12 +283,35 @@ def build(brands_path, ja_path, ref, mrp_as_of='2022-11', ja_as_of=''):
     return out
 
 
+TSV_COLUMNS = ['id', 'name', 'composition', 'maker', 'pack', 'units', 'mrp', 'mrpAsOf', 'schedule', 'gst', 'hsn']
+
+
+def _cell(v):
+    return re.sub(r'[\t\r\n]+', ' ', str(v)).strip()
+
+
 def write(entries, out_dir):
+    """india.tsv.gz: one medicine per line (TSV_COLUMNS, no header) — compact
+    and quick to scan on a phone. aliases.tsv: other names → canonical salt,
+    so a search for 'amoxycillin' finds 'amoxicillin'."""
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, 'catalogue.json.gz')
-    with gzip.open(path, 'wt', encoding='utf-8') as f:
-        json.dump(entries, f, ensure_ascii=False, separators=(',', ':'))
+    path = os.path.join(out_dir, 'india.tsv.gz')
+    with gzip.open(path, 'wt', encoding='utf-8', compresslevel=9) as f:
+        for e in entries:
+            composition = ' + '.join(f'{c[0]} {c[1]}'.strip() for c in e['c'])
+            row = [e['id'], e['n'], composition, e['m'], e['p'], e['u'], e['mrp'], e['mrpAsOf'], e['s'], e['g'], e['hsn']]
+            f.write('\t'.join(_cell(v) for v in row) + '\n')
+    with open(os.path.join(out_dir, 'aliases.tsv'), 'w', encoding='utf-8') as f:
+        for r in load_csv(os.path.join(REF, 'salt_aliases.csv')):
+            for a in r['aliases'].split('|'):
+                if a.strip():
+                    f.write(f"{norm(a)}\t{norm(r['canonical'])}\n")
     return path
+
+
+def read_tsv(path):
+    with gzip.open(path, 'rt', encoding='utf-8') as f:
+        return [dict(zip(TSV_COLUMNS, line.rstrip('\n').split('\t'))) for line in f]
 
 
 def report(entries):
@@ -319,6 +349,8 @@ def selftest():
         w.writerow([9, 'Pacimol 650 Tablet', '30', 'FALSE', 'Ipca', 'allopathy', 'strip of 15 tablets',
                     'Paracetamol (650mg)', ''])
         w.writerow([10, 'Typo Cef Tablet', '90', 'FALSE', 'Z', 'allopathy', 'strip of 10 tablets', 'Cefiximee (200mg)', ''])
+        w.writerow([11, 'Taxim-O LB Tablet', '120', 'FALSE', 'Alkem', 'allopathy', 'strip of 10 tablets',
+                    'Cefixime (200mg)', 'Lactic Acid Bacillus (60Million spores)'])
         w.writerow([7, 'Voveran 50 Tablet', '40', 'FALSE', 'Novartis', 'allopathy', 'strip of 10 tablets',
                     'Diclofenac Sodium (50mg)', ''])
     h = os.path.join(tmp, 'h.csv')
@@ -347,6 +379,7 @@ def selftest():
     check(by['Ritalin 10mg Tablet']['s'] == 'X', 'methylphenidate X')
     check(by['Mystery Tablet']['s'] == 'UNKNOWN', 'rare unknown salt → UNKNOWN, never OTC')
     check(by['Typo Cef Tablet']['s'] == 'UNKNOWN', 'typo of an H1 salt → UNKNOWN, never OTC')
+    check(by['Taxim-O LB Tablet']['s'] == 'H1', 'an H1 salt makes a combination H1 even with an unknown salt')
     check(by['Voveran 50 Tablet']['s'] == 'H', 'diclofenac sodium → diclofenac H')
     no_h = {e['n']: e for e in build(brands, None, Reference(None))}
     check(no_h['Dolo 650 Tablet']['s'] == 'UNKNOWN', 'no H list → UNKNOWN, never OTC')
@@ -354,8 +387,11 @@ def selftest():
     check(split_composition('Ibuprofen (400mg) + Paracetamol (325mg)') ==
           [('Ibuprofen', '400mg'), ('Paracetamol', '325mg')], 'split')
     path = write(list(by.values()), tmp)
-    with gzip.open(path, 'rt', encoding='utf-8') as f:
-        check(len(json.load(f)) == len(by), 'round trip')
+    rows = read_tsv(path)
+    check(len(rows) == len(by), 'round trip')
+    aug = next(r for r in rows if r['name'] == 'Augmentin 625 Duo Tablet')
+    check(aug['composition'] == 'amoxicillin 500mg + clavulanic acid 125mg', 'tsv composition')
+    check(aug['mrp'] == '22342' and aug['schedule'] == 'H' and aug['units'] == '10', 'tsv fields')
     print(report(list(by.values())))
     print('selftest', 'OK' if ok else 'FAILED')
     return 0 if ok else 1
@@ -379,7 +415,7 @@ def main():
     entries = build(a.brands, a.janaushadhi, ref, a.brands_date, a.janaushadhi_date)
     path = write(entries, a.out)
     rep = report(entries)
-    with open(os.path.join(a.out, 'catalogue_report.txt'), 'w', encoding='utf-8') as f:
+    with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..', 'catalogue', 'last_build_report.txt'), 'w', encoding='utf-8') as f:
         f.write(rep + '\n')
     print(rep)
     print(f'wrote {path} ({os.path.getsize(path) // 1024} KB)')
