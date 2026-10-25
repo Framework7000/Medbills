@@ -28,6 +28,21 @@ it is the project's memory.
   schedule/GST tables, salt aliases and an import builder (self-test passes,
   250k rows ≈ 1 min). See `catalogue/README.md`.
 
+**Added 24–25 Oct (committed; pushed only once GitHub access works again):**
+- `8b6ea18`: `ScannedCode` decodes the GST e-invoice bill QR, GS1 (with FNC1),
+  GS1 Digital Link and labelled Schedule H2 QR. Scans show a summary plus a
+  Details sheet. A bill photo with its QR uses the QR's exact header.
+  Linking saves the GTIN.
+- `d718335`: all 2,45,894 Indian medicines (`assets/catalogue/india.tsv.gz`,
+  MIT data, `IndiaCatalogue`, `indiaCatalogueProvider`), in the picker and
+  the Details sheet.
+- CI: the Windows job installs, opens and uninstalls `MedBills-Setup.exe`
+  5 times, with screenshots.
+- Receiving mode on the phone: barcode/QR scans go onto the receiving list
+  with batch, expiry and MRP (`test/presentation/scan_handling_test.dart`).
+- `INSTALL.md`: shop install guide. iPhone uses AltStore auto-refresh,
+  because there is no paid Apple account.
+
 **Next, in order:**
 1. **Install on the iPhone XR and launch it.**
    - `git pull` → `flutter pub get` → `cd ios && pod install`, then

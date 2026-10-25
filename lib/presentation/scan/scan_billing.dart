@@ -182,6 +182,25 @@ Future<ScanFeedback> handleScannedCode(BuildContext context, WidgetRef ref, Stri
     );
   }
   final stock = hit.stock;
+  // Receiving a delivery on the phone: the code's batch, expiry and MRP go
+  // onto the receiving list (never the sale bill). A code that names a
+  // medicine not stocked yet is added by name, to be matched on review.
+  if (DeviceFeatures.isPhone && ref.read(scanModeProvider) == ScanMode.receiving) {
+    final pack = code is PackCode ? code : null;
+    final name = stock?.medicine.name ?? pack?.brand ?? pack?.genericName;
+    if (name != null) {
+      ref.read(receivingDraftProvider.notifier).addPack(
+            medicineId: stock?.medicine.id,
+            medicineName: name,
+            batchNumber: hit.batchNumber ?? '',
+            expiryMonth: hit.expiry?.month,
+            expiryYear: hit.expiry?.year,
+            mrpPaise: pack?.mrpPaise ?? 0,
+          );
+      return ScanFeedback('Added to receiving draft · $name${hit.batchNumber == null ? '' : ' (batch ${hit.batchNumber})'}',
+          actionLabel: 'Details', onAction: details);
+    }
+  }
   if (stock == null) {
     if (code is TextCode) {
       return ScanFeedback('Read: ${describeScannedCode(code)}', actionLabel: 'Details', onAction: details);
