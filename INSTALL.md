@@ -3,7 +3,8 @@
 Everything downloads from one page:
 **https://github.com/Framework7000/Medbills/releases/tag/latest-build**
 
-All devices share the same online store database. Install, sign in, and
+All devices share the same online store database. The Windows laptop is
+the counter; an Android phone is the scanner. Install, sign in, and
 they show the same bills and stock. No cables are needed after setup.
 
 ## Windows laptop (the main counter app)
@@ -18,31 +19,33 @@ No admin password, no code, nothing else to install. Every build is checked
 automatically on a clean Windows computer, 5 rounds of install → open →
 uninstall, before it appears on the download page.
 
-## iPhone (the scanner), free Apple ID, renews itself
+## Android phone (the scanner)
 
-Apple stops apps installed with a free Apple ID after 7 days. AltStore
-renews MedBills automatically over the shop Wi-Fi while the laptop is on,
-so nobody has to plug the phone in every week.
+1. On the phone, open this link in Chrome:
+   https://github.com/Framework7000/Medbills/releases/download/latest-build/MedBills-Android.apk
+2. Tap **Download**, then open the file. If Android asks, allow
+   **Install unknown apps** for Chrome, then tap **Install**.
+3. Open MedBills, allow the **camera**, and sign in with the shop login.
 
-One-time setup on the shop Windows laptop (about 15 minutes):
-1. Install **iTunes** and **iCloud** from apple.com (not the Microsoft
-   Store versions), then **AltServer** from altstore.io.
-2. Connect the iPhone by cable and unlock it. Tap **Trust** on the phone.
-3. In the AltServer icon (bottom-right of the taskbar), choose
-   **Install AltStore → your iPhone** and sign in with your Apple ID.
-4. On the iPhone, go to Settings → General → VPN & Device Management →
-   your Apple ID → **Trust**. Also turn on Settings → Privacy & Security →
-   **Developer Mode** (the phone restarts).
-5. In iTunes, tick **"Sync with this iPhone over Wi-Fi"** for the iPhone.
-6. On the iPhone, download **MedBills-iOS-unsigned.ipa** from the page
-   above, open it with **AltStore** (Share → AltStore), and wait for it to
-   install.
+It never expires and needs no cable or computer. To update, open the same
+link and install again over the old one. Data stays, because it lives online.
 
-After that, keep AltServer running on the laptop (it starts with Windows)
-and the iPhone on the same Wi-Fi. AltStore renews MedBills by itself.
-If the laptop was off for a whole week, open AltStore on the iPhone and tap
-**Refresh All**. Bills and stock are never lost, because they live in the
-online database, not on the phone.
+**Using it:** MedBills opens straight into the camera.
+- Any barcode, QR or DataMatrix on a medicine, or the QR on a supplier
+  bill, is read the moment it's in view.
+- For a medicine pack or a whole supplier bill without a code, press the
+  round button.
+- The chip at the top shows where scans go ("To Windows PC counter"). It
+  picks the shop computer by itself when that's the only one open. Tap it
+  to switch between Selling and Receiving.
+- Medicines appear on the Windows bill at once. A supplier bill pops up on
+  Windows with a **Review** button.
+
+The Windows computer receives phone scans whenever MedBills is open on it.
+Nothing needs switching on.
+
+(An iPhone also works, but with a free Apple ID it must be renewed every
+7 days: see AltStore at altstore.io. Android has no such limit.)
 
 ## First time, owner only
 

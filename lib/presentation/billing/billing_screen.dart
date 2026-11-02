@@ -16,6 +16,7 @@ import '../../domain/services/pack_units.dart';
 import '../../domain/services/schedule_h1_compliance.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
+import '../../platform/scan_target_memory.dart';
 import '../../state/providers.dart';
 import '../customers/customer_dialogs.dart';
 import '../scan/barcode_scanner_screen.dart';
@@ -48,6 +49,27 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
   final _appliedByEvent = <String, ({String batchId, int units})>{};
   final _incoming = <_IncomingScan>[];
   final _incomingTimers = <String, Timer>{};
+
+  @override
+  void initState() {
+    super.initState();
+    // A Windows/Mac counter listens for the phone the moment MedBills opens,
+    // under the same name as last time — nobody has to switch it on.
+    if (!DeviceFeatures.isPhone) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _autoStartStation());
+    }
+  }
+
+  Future<void> _autoStartStation() async {
+    try {
+      if (!mounted || _station != null || await CounterMemory.isOff()) return;
+      final saved = await CounterMemory.load();
+      if (!mounted || _station != null) return;
+      await _startStation(id: saved?.$1, name: saved?.$2 ?? '${DeviceFeatures.label} counter', quiet: true);
+    } catch (_) {
+      // Receiving can still be switched on by hand from Scan (F3).
+    }
+  }
 
   @override
   void dispose() {
@@ -86,13 +108,19 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
   Future<void> _toggleStation() async {
     if (_station != null) {
       _stopStation();
+      unawaited(CounterMemory.setOff(true));
       return;
     }
-    final repo = ref.read(repositoryProvider)!;
     final name = await _askCounterName();
     if (name == null || !mounted) return;
+    await _startStation(id: (await CounterMemory.load())?.$1, name: name);
+  }
+
+  Future<void> _startStation({String? id, required String name, bool quiet = false}) async {
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
     final station = ScanStation(
-      id: repo.newId(),
+      id: id ?? repo.newId(),
       storeId: repo.storeId,
       name: name,
       active: true,
@@ -102,9 +130,10 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
     try {
       await repo.saveStation(station);
     } catch (e) {
-      if (mounted) showMessage(context, friendlyError(e), error: true);
+      if (mounted && !quiet) showMessage(context, friendlyError(e), error: true);
       return;
     }
+    unawaited(CounterMemory.save(station.id, station.name));
     if (!mounted) return;
     setState(() => _station = station);
     _stationRepo = repo;
@@ -117,7 +146,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
             id: s.id, storeId: s.storeId, name: s.name, active: true, uid: s.uid, updatedAt: DateTime.now())));
       }
     });
-    showMessage(context, 'Phones can now send scans to "$name". On the phone: Billing → scan → choose $name.');
+    if (!quiet) showMessage(context, 'Phones can now send scans to "$name".');
   }
 
   void _stopStation({bool notify = true}) {

@@ -28,12 +28,9 @@ void main() {
       final container = ProviderScope.containerOf(tester.element(find.byType(MaterialApp)));
       final repo = container.read(repositoryProvider)!;
 
-      // Register this counter to receive phone scans.
-      await tester.tap(find.widgetWithText(FilledButton, 'Scan (F3)'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Use a phone as the scanner'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Start'));
+      // A computer receives phone scans the moment MedBills opens — nobody
+      // has to switch it on.
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
       await tester.pumpAndSettle();
       expect(find.textContaining('Receiving phone scans as'), findsOneWidget);
       final station = (await tester.runAsync(() => repo.watchStations().first))!.single;

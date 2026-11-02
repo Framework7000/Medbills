@@ -105,6 +105,10 @@ class _SmartCameraViewState extends State<_SmartCameraView> with WidgetsBindingO
               'Camera permission is off. Allow camera access for MedBills in Settings.',
             _ => 'Camera unavailable: ${e.description ?? e.code}',
           });
+    } catch (e) {
+      // Anything else (camera busy, plugin missing) shows a message rather
+      // than a blank screen; codes can still be typed or sent from a counter.
+      if (mounted) setState(() => _error = 'Camera unavailable. Close other camera apps and try again.');
     }
   }
 

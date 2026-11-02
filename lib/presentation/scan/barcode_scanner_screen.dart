@@ -65,6 +65,7 @@ Future<void> openContinuousScanner(
   required String title,
   required Future<ScanFeedback> Function(String raw) onScan,
   Widget? header,
+  Widget? compactHeader,
   Future<ScanFeedback?> Function(String? photoPath)? onCapturePhoto,
   String Function()? pendingLabel,
   Future<void> Function(ScanFeedback sent)? onUndo,
@@ -75,6 +76,7 @@ Future<void> openContinuousScanner(
       title: title,
       onScan: onScan,
       header: header,
+      compactHeader: compactHeader,
       onCapturePhoto: onCapturePhoto,
       pendingLabel: pendingLabel,
       onUndo: onUndo,
@@ -95,6 +97,7 @@ class _ScannerScreen extends StatefulWidget {
     required this.title,
     this.onScan,
     this.header,
+    this.compactHeader,
     this.single = false,
     this.onCapturePhoto,
     this.pendingLabel,
@@ -103,6 +106,9 @@ class _ScannerScreen extends StatefulWidget {
   final String title;
   final Future<ScanFeedback> Function(String raw)? onScan;
   final Widget? header;
+  /// On a phone's full-screen Smart Scan camera, a small control shown over
+  /// the top of the picture (where scans go) instead of [header] below it.
+  final Widget? compactHeader;
   final bool single;
   final Future<ScanFeedback?> Function(String? photoPath)? onCapturePhoto;
   final String Function()? pendingLabel;
@@ -272,8 +278,168 @@ class _ScannerScreenState extends State<_ScannerScreen> {
     }
   }
 
+  /// The phone's Smart Scan: one full-screen camera and nothing else. Codes
+  /// are read the moment they're in view; the round button reads a pack or
+  /// a bill. Where results go is one small chip at the top; the result of
+  /// each scan floats over the bottom of the picture.
+  Widget _smartCameraLayout(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final feedback = _feedback;
+    Widget roundButton(IconData icon, String tooltip, VoidCallback onPressed) => Material(
+      color: Colors.black45,
+      shape: const CircleBorder(),
+      child: IconButton(
+        tooltip: tooltip,
+        icon: Icon(icon, color: Colors.white),
+        onPressed: onPressed,
+      ),
+    );
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          buildSmartCamera(
+            onCode: _onCode,
+            onReady: (camera) => _camera = camera,
+            onError: (message) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(Space.xl),
+                child: Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+          const IgnorePointer(child: Center(child: _AimFrame())),
+          if (_busy)
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(color: Colors.white),
+                  const SizedBox(height: Space.m),
+                  Text(
+                    _waitingForInternet ? 'Waiting for internet…' : (_pendingText ?? 'Reading…'),
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+          IgnorePointer(
+            child: Center(
+              child: _ConfirmBurst(key: ValueKey(_burst), play: _burst > 0),
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(Space.s),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  roundButton(PhosphorIconsRegular.x, 'Close', () => Navigator.of(context).pop()),
+                  const SizedBox(width: Space.s),
+                  Expanded(child: Center(child: widget.compactHeader ?? const SizedBox.shrink())),
+                  const SizedBox(width: Space.s),
+                  roundButton(PhosphorIconsRegular.flashlight, 'Torch', () => _camera?.toggleTorch()),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(Space.m, 0, Space.m, Space.l),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (feedback != null)
+                      Material(
+                        color: AppColors.surface,
+                        elevation: 4,
+                        borderRadius: BorderRadius.circular(16),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(Space.m, Space.s, Space.s, Space.s),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _ShakeOnFail(
+                                key: ValueKey(_shake),
+                                shake: !feedback.ok,
+                                child: _AnimatedFeedback(key: ValueKey(_feedbackSeq), feedback: feedback),
+                              ),
+                              if (_undoable != null)
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton.icon(
+                                    onPressed: _tapUndo,
+                                    icon: const Icon(PhosphorIconsRegular.arrowUUpLeft),
+                                    label: Text('Undo ($_undoSecondsLeft s)'),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: Space.m, vertical: Space.s),
+                          decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
+                          child: Text(
+                            'Any code reads by itself · ● for a pack or bill',
+                            style: text.bodySmall?.copyWith(color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: Space.l),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: _count == 0
+                                ? const SizedBox.shrink()
+                                : Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: Space.m, vertical: Space.s),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text('$_count done', style: text.labelLarge?.copyWith(color: Colors.white)),
+                                  ),
+                          ),
+                        ),
+                        _ShutterButton(onPressed: _busy ? null : _onCapture),
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: roundButton(PhosphorIconsRegular.check, 'Done', () => Navigator.of(context).pop()),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_useSmartCamera) return _smartCameraLayout(context);
     final text = Theme.of(context).textTheme;
     final feedback = _feedback;
     return Scaffold(
@@ -287,25 +453,13 @@ class _ScannerScreenState extends State<_ScannerScreen> {
           IconButton(
             tooltip: 'Torch',
             icon: const Icon(PhosphorIconsRegular.flashlight),
-            onPressed: () => _useSmartCamera ? _camera?.toggleTorch() : _controller.toggleTorch(),
+            onPressed: () => _controller.toggleTorch(),
           ),
         ],
       ),
       body: Column(children: [
         Expanded(
           child: Stack(fit: StackFit.expand, children: [
-            if (_useSmartCamera)
-              buildSmartCamera(
-                onCode: _onCode,
-                onReady: (camera) => _camera = camera,
-                onError: (message) => Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(Space.xl),
-                    child: Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
-                  ),
-                ),
-              )
-            else
             MobileScanner(
               controller: _controller,
               onDetect: _onDetect,
@@ -345,14 +499,7 @@ class _ScannerScreenState extends State<_ScannerScreen> {
                 ]),
               ),
             IgnorePointer(child: Center(child: _ConfirmBurst(key: ValueKey(_burst), play: _burst > 0))),
-            if (_useSmartCamera)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: Space.l,
-                child: Center(child: _ShutterButton(onPressed: _busy ? null : _onCapture)),
-              )
-            else if (widget.onCapturePhoto != null)
+            if (widget.onCapturePhoto != null)
               Positioned(
                 right: Space.l,
                 bottom: Space.l,
@@ -380,9 +527,7 @@ class _ScannerScreenState extends State<_ScannerScreen> {
                   Text(
                       widget.single
                           ? 'Hold the barcode inside the frame.'
-                          : _useSmartCamera
-                              ? 'Point at a barcode — or tap the button for a pack or a bill.'
-                              : widget.onCapturePhoto != null
+                          : widget.onCapturePhoto != null
                               ? 'Point at a barcode, or tap the camera for a pack or a bill.'
                               : 'Scan packs one after another.',
                       style: text.bodyMedium?.copyWith(color: AppColors.muted))
@@ -564,6 +709,44 @@ class _ShutterButton extends StatelessWidget {
             child: const DecoratedBox(decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white)),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Corner marks showing where to hold a code — light enough not to hide the
+/// picture.
+class _AimFrame extends StatelessWidget {
+  const _AimFrame();
+
+  @override
+  Widget build(BuildContext context) {
+    const side = BorderSide(color: Colors.white, width: 3);
+    Widget corner(Alignment a) => Align(
+      alignment: a,
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          border: Border(
+            top: a.y < 0 ? side : BorderSide.none,
+            bottom: a.y > 0 ? side : BorderSide.none,
+            left: a.x < 0 ? side : BorderSide.none,
+            right: a.x > 0 ? side : BorderSide.none,
+          ),
+        ),
+      ),
+    );
+    return SizedBox(
+      width: 260,
+      height: 180,
+      child: Stack(
+        children: [
+          corner(Alignment.topLeft),
+          corner(Alignment.topRight),
+          corner(Alignment.bottomLeft),
+          corner(Alignment.bottomRight),
+        ],
       ),
     );
   }

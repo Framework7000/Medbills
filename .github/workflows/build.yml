@@ -119,12 +119,58 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      # One permanent signing key for the app, kept by GitHub between builds
+      # (not in the public code), so a new version installs over the old one
+      # on the phone instead of being refused as a different app.
+      - name: Restore the app's signing key
+        id: signing-key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: medbills-android-signing-key-v1
+      - name: Create the signing key (first build only)
+        if: steps.signing-key.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.android
+          keytool -genkeypair -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey \
+            -keypass android -keyalg RSA -keysize 2048 -validity 20000 -dname "CN=MedBills, O=MedBills, C=IN"
       - run: flutter build apk --release
       - run: cp build/app/outputs/flutter-apk/app-release.apk MedBills-Android.apk
       - uses: actions/upload-artifact@v4
         with:
           name: MedBills-Android
           path: MedBills-Android.apk
+
+  # The brother's phone only ever installs MedBills-Android.apk and opens it,
+  # so check exactly that, five times over, on an Android phone emulator:
+  # install, the app opens and keeps running (screenshot kept), uninstall.
+  android-install-check:
+    needs: android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: MedBills-Android
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install, open and uninstall MedBills 5 times on an Android phone
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -camera-back emulated
+          script: bash .github/scripts/android_install_check.sh MedBills-Android.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-install-check-screenshots
+          path: android-screenshots
 
   macos:
     runs-on: macos-latest
@@ -201,7 +247,7 @@ jobs:
           path: build/web
 
   release:
-    needs: [checks, windows, android, macos, ios]
+    needs: [checks, windows, android, android-install-check, macos, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write

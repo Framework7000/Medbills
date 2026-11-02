@@ -39,6 +39,15 @@ enum ScanMode { selling, receiving }
 
 final scanModeProvider = StateProvider<ScanMode>((ref) => ScanMode.selling);
 
+/// A phone is the shop's scanner: it starts on the Scan tab and opens the
+/// Smart Scan camera by itself. Switched off for widget tests (no camera)
+/// in test/flutter_test_config.dart.
+class PhoneStartup {
+  static bool scannerFirst = true;
+}
+
+final autoOpenSmartScanProvider = Provider<bool>((ref) => PhoneStartup.scannerFirst);
+
 /// The in-progress draft built by scanning packs in receiving mode. Cleared
 /// once it's handed off to the pharmacist for review (or the user signs out).
 final receivingDraftProvider = StateNotifierProvider<ReceivingDraftNotifier, BillDraft>((ref) {
@@ -169,7 +178,7 @@ Future<ScanFeedback> handleScannedCode(BuildContext context, WidgetRef ref, Stri
 
   if (code is EInvoiceCode) {
     return ScanFeedback('Supplier bill · ${describeScannedCode(code)}',
-        actionLabel: 'Details', onAction: details);
+        actionLabel: 'Send to counter', onAction: () => _sendBillFromQr(context, ref, code));
   }
   final index = ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{};
   final hit = resolveBarcode(raw, index);
@@ -215,6 +224,39 @@ Future<ScanFeedback> handleScannedCode(BuildContext context, WidgetRef ref, Stri
   }
   return _sendOrAddToBill(ref,
       stock: stock, batchNumber: hit.batchNumber, rawBarcode: raw, target: toCounter ? ref.read(scanTargetProvider) : null);
+}
+
+/// A supplier bill's GST e-invoice QR, read live: its exact supplier GSTIN,
+/// invoice number, date and total go to the counter as a bill to receive
+/// (it pops up there). The lines come from photographing the bill (●) or
+/// are typed on the computer. The same bill is never sent twice.
+Future<void> _sendBillFromQr(BuildContext context, WidgetRef ref, EInvoiceCode bill) async {
+  final existing = (ref.read(billScansProvider).valueOrNull ?? const <BillScan>[]).where((s) =>
+      s.status != BillScanStatus.discarded &&
+      s.draft.invoiceNumber == bill.docNo &&
+      (bill.sellerGstin.isEmpty || s.draft.supplierGstin == bill.sellerGstin));
+  if (existing.isNotEmpty) {
+    showMessage(context, 'Bill ${bill.docNo} is already with the counter.');
+    return;
+  }
+  try {
+    await ref.read(repositoryProvider)!.createBillScan(
+          draft: BillDraft(
+            supplierGstin: bill.sellerGstin,
+            invoiceNumber: bill.docNo,
+            invoiceDate: bill.docDate,
+            billTotalPaise: bill.totalPaise,
+          ),
+          ocrText: 'GST e-invoice QR read on ${DeviceFeatures.label}'
+              '${bill.itemCount == null ? '' : ' · ${bill.itemCount} items'}'
+              '${bill.irn.isEmpty ? '' : ' · IRN ${bill.irn}'}',
+        );
+    if (context.mounted) {
+      showMessage(context, 'Bill ${bill.docNo} sent to the counter. Photograph it (●) to add its lines.');
+    }
+  } catch (e) {
+    if (context.mounted) showMessage(context, friendlyError(e), error: true);
+  }
 }
 
 /// Sends every line on this device's own bill to a chosen counter in one
@@ -303,6 +345,7 @@ Future<void> openSmartScanner(BuildContext context, WidgetRef ref) => openContin
       title: 'Smart Scan',
       onScan: (raw) => handleScannedCode(context, ref, raw),
       header: const SmartScanHeader(),
+      compactHeader: const SmartScanChip(),
       onCapturePhoto: DeviceFeatures.cameraScanning ? (path) => smartPhotoCapture(context, ref, photoPath: path) : null,
       pendingLabel: () {
         if (ref.read(scanModeProvider) == ScanMode.receiving) return 'Adding to draft…';
@@ -311,6 +354,111 @@ Future<void> openSmartScanner(BuildContext context, WidgetRef ref) => openContin
       },
       onUndo: (feedback) => undoSentScan(ref, feedback.undoToken!),
     );
+
+/// The one control over the phone's full-screen camera: where scans go
+/// ("To Counter 1", "Receiving · 3"). With a single counter online and no
+/// earlier choice, it is chosen by itself, so a new phone sends to the shop
+/// computer with no setup. Tapping it opens the mode and counter choices.
+class SmartScanChip extends ConsumerStatefulWidget {
+  const SmartScanChip({super.key});
+
+  @override
+  ConsumerState<SmartScanChip> createState() => _SmartScanChipState();
+}
+
+class _SmartScanChipState extends ConsumerState<SmartScanChip> {
+  (String, String)? _remembered;
+  bool _loaded = false;
+  bool _applied = false;
+
+  @override
+  void initState() {
+    super.initState();
+    ScanTargetMemory.load().then((saved) {
+      if (!mounted) return;
+      setState(() {
+        _remembered = saved;
+        _loaded = true;
+      });
+    }).catchError((_) {
+      if (mounted) setState(() => _loaded = true);
+    });
+  }
+
+  void _openChoices() => showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (_) => const SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(Space.l, 0, Space.l, Space.l),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              SmartScanHeader(),
+              SizedBox(height: Space.s),
+              NotDeliveredScans(),
+            ]),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final mode = ref.watch(scanModeProvider);
+    final target = ref.watch(scanTargetProvider);
+    final now = DateTime.now();
+    final stations = (ref.watch(stationsProvider).valueOrNull ?? const <ScanStation>[])
+        .where((s) => s.isAvailableAt(now))
+        .toList();
+
+    if (!_applied && _loaded && target == null && mode == ScanMode.selling) {
+      final remembered = _remembered;
+      ScanStation? pick;
+      if (remembered != null && remembered.$1.isNotEmpty) {
+        pick = stations.where((s) => s.id == remembered.$1).firstOrNull;
+      } else if (remembered == null && stations.length == 1) {
+        pick = stations.first; // first use, one shop computer: send there
+      }
+      if (pick != null) {
+        _applied = true;
+        final chosen = pick;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ref.read(scanTargetProvider.notifier).state = chosen;
+          unawaited(ScanTargetMemory.save(chosen.id, chosen.name).catchError((_) {}));
+        });
+      }
+    }
+
+    final draft = ref.watch(receivingDraftProvider);
+    final (IconData icon, String label) = mode == ScanMode.receiving
+        ? (PhosphorIconsRegular.package, 'Receiving · ${draft.lines.length}')
+        : target != null
+            ? (PhosphorIconsRegular.desktop, 'To ${target.name}')
+            : (PhosphorIconsRegular.deviceMobile, stations.isEmpty ? 'No counter online · this phone' : 'To this phone');
+
+    return Material(
+      color: Colors.black54,
+      shape: const StadiumBorder(),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: _openChoices,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Space.m, vertical: 10),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, color: Colors.white, size: 18),
+            const SizedBox(width: Space.s),
+            Flexible(
+              child: Text(label,
+                  overflow: TextOverflow.ellipsis, style: text.labelLarge?.copyWith(color: Colors.white)),
+            ),
+            const SizedBox(width: Space.xs),
+            const Icon(PhosphorIconsRegular.caretDown, color: Colors.white, size: 14),
+          ]),
+        ),
+      ),
+    );
+  }
+}
 
 /// What shows above the live Smart Scan camera: selling's counter picker, or
 /// receiving's mode toggle and running draft — reactive to the mode switch
@@ -379,6 +527,19 @@ Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref, {St
 
   // A GST e-invoice QR in the photo settles it: this is a supplier bill.
   if (eInvoice != null || classifyCapture(page!, medicines, ownGstin: ownGstin) == CaptureKind.supplierBill) {
+    if (DeviceFeatures.isPhone) {
+      // The phone is the scanner: the bill goes to the counter computer
+      // (which pops it up for review) and the camera stays open.
+      BillScan? sent;
+      await receiveBillPhoto(context, ref, photo,
+          page: page, eInvoice: eInvoice, openReview: false, onSaved: (scan) => sent = scan);
+      final bill = sent;
+      if (bill == null) return null; // the reason was already shown
+      final lines = bill.draft.lines.length;
+      return ScanFeedback('Supplier bill sent to the counter'
+          '${bill.draft.invoiceNumber.isEmpty ? '' : ' · ${bill.draft.invoiceNumber}'}'
+          ' · $lines line${lines == 1 ? '' : 's'} read. Review it on the computer.');
+    }
     final saved = await receiveBillPhoto(context, ref, photo, page: page, eInvoice: eInvoice);
     // Receiving a bill opens its own review screen — close Smart Scan behind
     // it too, rather than leaving the camera open underneath.

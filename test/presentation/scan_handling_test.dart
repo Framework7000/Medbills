@@ -19,13 +19,16 @@ void main() {
   Future<void> pump(WidgetTester tester) async {
     await tester.pumpWidget(ProviderScope(
       child: MaterialApp(
-        home: Consumer(builder: (c, r, _) {
-          ref = r;
-          context = c;
-          r.watch(currentUserProvider);
-          r.watch(stockIndexProvider); // loaded, as the scan screens keep it
-          return const SizedBox();
-        }),
+        home: Scaffold(
+          body: Consumer(builder: (c, r, _) {
+            ref = r;
+            context = c;
+            r.watch(currentUserProvider);
+            r.watch(stockIndexProvider); // loaded, as the scan screens keep it
+            r.watch(billScansProvider);
+            return const SizedBox();
+          }),
+        ),
       ),
     ));
     await tester.pumpAndSettle();
@@ -43,7 +46,34 @@ void main() {
     expect(feedback.message, contains('Supplier bill'));
     expect(feedback.message, contains('SSP/2627/0456'));
     expect(feedback.message, contains('15,998.5'));
-    expect(feedback.actionLabel, 'Details');
+    expect(feedback.actionLabel, 'Send to counter');
+
+    // One tap sends the bill (its exact header from the QR) to the counter.
+    final repo = ref.read(repositoryProvider)!;
+    ref.read(billScansProvider); // the scan screens keep this loaded
+    await tester.runAsync(() async {
+      feedback.onAction!();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pumpAndSettle();
+    var bills = (await tester.runAsync(() => repo.watchBillScans().first))!;
+    final sent = bills.where((b) => b.draft.invoiceNumber == 'SSP/2627/0456').toList();
+    expect(sent, hasLength(1));
+    expect(sent.single.draft.supplierGstin, '23AAKFS1234C1Z9');
+    expect(sent.single.draft.billTotalPaise, 1599850);
+    expect(sent.single.draft.invoiceDate, DateTime(2026, 10, 8));
+
+    // Scanning the same bill again never sends it twice.
+    await tester.pumpAndSettle();
+    final again = await handleScannedCode(context, ref, qr);
+    await tester.runAsync(() async {
+      again.onAction!();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pumpAndSettle();
+    bills = (await tester.runAsync(() => repo.watchBillScans().first))!;
+    expect(bills.where((b) => b.draft.invoiceNumber == 'SSP/2627/0456'), hasLength(1));
+    expect(find.textContaining('already with the counter'), findsOneWidget);
   });
 
   testWidgets('an expired pack is refused with a clear warning', (tester) async {

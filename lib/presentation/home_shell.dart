@@ -3,12 +3,16 @@ import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/models/app_user.dart';
+import '../domain/models/bill_scan.dart';
+import '../platform/device_features.dart';
 import '../state/providers.dart';
 import 'billing/billing_screen.dart';
 import 'customers/customers_screen.dart';
 import 'inventory/inventory_screen.dart';
+import 'purchases/bill_scan_screen.dart' show BillReviewScreen;
 import 'purchases/purchases_screen.dart';
 import 'reports/reports_screen.dart';
+import 'scan/scan_billing.dart' show PhoneStartup;
 import 'scan/scan_screen.dart';
 import 'sales/bill_history_screen.dart';
 import 'settings/settings_screen.dart';
@@ -49,13 +53,50 @@ class HomeShell extends ConsumerStatefulWidget {
 }
 
 class _HomeShellState extends ConsumerState<HomeShell> {
-  int _index = 0;
+  // A phone is the shop's scanner: it opens on Scan. Computers open on Billing.
+  int _index = DeviceFeatures.isPhone && PhoneStartup.scannerFirst ? 1 : 0;
+
+  /// Supplier bills already known when this computer opened, plus those
+  /// announced since — so each new one from a phone is announced once.
+  Set<String>? _seenBillScans;
+
+  void _announceNewBills(List<BillScan>? scans) {
+    if (scans == null) return;
+    final seen = _seenBillScans;
+    if (seen == null) {
+      _seenBillScans = {for (final s in scans) s.id};
+      return;
+    }
+    final now = DateTime.now();
+    for (final s in scans) {
+      if (!seen.add(s.id) || s.status != BillScanStatus.draft || now.difference(s.createdAt).inMinutes.abs() > 10) {
+        continue;
+      }
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+        duration: const Duration(seconds: 10),
+        content: Text('New supplier bill${s.createdByName.isEmpty ? '' : ' from ${s.createdByName}'}'
+            '${s.draft.invoiceNumber.isEmpty ? '' : ' · ${s.draft.invoiceNumber}'}'),
+        action: SnackBarAction(
+          label: 'Review',
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BillReviewScreen(scanId: s.id))),
+        ),
+      ));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider)!;
     final udhaarEnabled = ref.watch(storeProvider).valueOrNull?.udhaarEnabled ?? false;
     final destinations = _destinationsFor(user.role, udhaarEnabled: udhaarEnabled);
+    // The counter computer hears about a supplier bill photographed on a
+    // phone the moment it is saved, with a button to review it.
+    if (!DeviceFeatures.isPhone && user.role.canManageStock) {
+      ref.listen<AsyncValue<List<BillScan>>>(billScansProvider, (_, next) => _announceNewBills(next.valueOrNull));
+      // Bills that were already there when this computer opened are known,
+      // not new.
+      if (_seenBillScans == null) _announceNewBills(ref.read(billScansProvider).valueOrNull);
+    }
     if (_index >= destinations.length) _index = 0;
 
     // Low/out-of-stock count, shown as a badge on Stock so it needs no

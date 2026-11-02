@@ -3,6 +3,32 @@
 Read this first, then `README.md`. Branch: `claude/medbills-repo-t8ueeh`
 (GitHub: Framework7000/Medbills). Everything below is pushed.
 
+## PLAN CHANGE (2 Nov 2026): Windows = counter, ANDROID = scanner
+
+The owner dropped the iPhone because of the 7-day free-Apple-ID limit. The
+brother uses an Android phone as the scanner and the Windows laptop as the
+counter.
+- **Windows** receives phone scans whenever MedBills is open: the counter
+  auto-starts under the same id and name (`CounterMemory`). Switching it off
+  in Scan (F3) is remembered. A supplier bill saved from the phone pops up
+  as "New supplier bill … Review" (`HomeShell._announceNewBills`).
+- **Android** starts on Scan and opens Smart Scan by itself
+  (`PhoneStartup.scannerFirst`, off in tests via
+  `test/flutter_test_config.dart`). It is one full-screen camera:
+  - top: close, `SmartScanChip`, torch;
+  - bottom: the result card, the round shutter, Done.
+
+  The chip auto-picks the only online counter on first use and remembers
+  it. Medicines go to the counter's bill at once. A bill photo or a bill's
+  e-invoice QR ("Send to counter") goes to Windows for review; the phone
+  never opens a review itself.
+- CI: `android-install-check` installs, opens and uninstalls the APK 5
+  times on an emulator (`.github/scripts/android_install_check.sh`). The
+  release waits for it. The APK's signing key is kept in the GitHub
+  Actions cache (`medbills-android-signing-key-v1`), so updates install
+  over the old app. If that cache is ever evicted, a new key means one
+  uninstall/reinstall.
+
 ## START HERE — state on 21 Oct 2026 (read this first)
 
 The owner now chats in **one place: the Claude session running on the Mac**

@@ -81,8 +81,12 @@ Future<bool> captureSupplierBill(BuildContext context, WidgetRef ref) async {
 /// [eInvoice], when the photo also showed the bill's GST e-invoice QR, is
 /// the exact supplier GSTIN, invoice number, date and total — they replace
 /// what text reading found for those fields.
+///
+/// [openReview] false (the phone as the shop's scanner) saves the bill for
+/// the counter computer to review instead of opening the review here;
+/// [onSaved] receives the saved bill.
 Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file,
-    {OcrPage? page, EInvoiceCode? eInvoice}) async {
+    {OcrPage? page, EInvoiceCode? eInvoice, bool openReview = true, void Function(BillScan scan)? onSaved}) async {
   final repo = ref.read(repositoryProvider)!;
   final ownGstin = ref.read(storeProvider).valueOrNull?.gstin ?? '';
   final medicines = _knownMedicines(ref);
@@ -127,6 +131,8 @@ Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file,
     showMessage(context, friendlyError(failure ?? 'Could not save the bill.'), error: true);
     return false;
   }
+  onSaved?.call(scan);
+  if (!openReview) return true;
   if (!DeviceFeatures.textReading) {
     showMessage(context, 'Bill photo saved. Type each line below — searching finds it, or adds it as a new '
         'medicine if it isn\'t in stock yet. (Photographing the bill with the phone instead reads it automatically.)');

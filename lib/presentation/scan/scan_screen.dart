@@ -8,6 +8,7 @@ import '../../state/providers.dart';
 import '../theme.dart';
 import 'barcode_scanner_screen.dart';
 import 'scan_billing.dart';
+import 'smart_camera.dart';
 
 /// Everything that starts with a scan, in one place. On the phone this is a
 /// main tab: the phone is the store's scanner — into its own bill or a
@@ -22,6 +23,20 @@ class ScanScreen extends ConsumerStatefulWidget {
 class _ScanScreenState extends ConsumerState<ScanScreen> {
   final _code = TextEditingController();
   ScanFeedback? _feedback;
+
+  /// Once per app start: a phone goes straight into the camera.
+  static bool _openedOnStart = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_openedOnStart && smartCameraAvailable && ref.read(autoOpenSmartScanProvider)) {
+      _openedOnStart = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) openSmartScanner(context, ref);
+      });
+    }
+  }
 
   @override
   void dispose() {
