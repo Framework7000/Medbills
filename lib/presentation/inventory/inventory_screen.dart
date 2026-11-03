@@ -12,6 +12,7 @@ import '../../state/providers.dart';
 import '../sales/invoice_view.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'batch_edit_dialog.dart';
 import 'medicine_edit_dialog.dart';
 
 enum _Filter {
@@ -335,6 +336,12 @@ class _BatchCard extends ConsumerWidget {
               Text(PackUnits.describe(batch.quantity, unitsPerPack), style: text.bodyMedium),
             ]),
           ),
+          if (manager)
+            IconButton(
+              tooltip: 'Edit dates and prices',
+              icon: const Icon(PhosphorIconsRegular.pencilSimple),
+              onPressed: () => showDialog<void>(context: context, builder: (_) => BatchEditDialog(batch: batch)),
+            ),
           if (manager)
             TextButton(
               onPressed: () async {

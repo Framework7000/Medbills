@@ -39,18 +39,25 @@ class Batch {
 
   bool isSellableAt(DateTime now) => !isBlocked && quantity > 0 && !isExpiredAt(now);
 
-  Batch copyWith({int? quantity, bool? isBlocked}) {
+  Batch copyWith({
+    int? quantity,
+    bool? isBlocked,
+    DateTime? expiryDate,
+    DateTime? createdAt,
+    int? mrpPaise,
+    int? purchasePricePaise,
+  }) {
     return Batch(
       id: id,
       storeId: storeId,
       medicineId: medicineId,
       batchNumber: batchNumber,
-      expiryDate: expiryDate,
-      purchasePricePaise: purchasePricePaise,
-      mrpPaise: mrpPaise,
+      expiryDate: expiryDate ?? this.expiryDate,
+      purchasePricePaise: purchasePricePaise ?? this.purchasePricePaise,
+      mrpPaise: mrpPaise ?? this.mrpPaise,
       quantity: quantity ?? this.quantity,
       isBlocked: isBlocked ?? this.isBlocked,
-      createdAt: createdAt,
+      createdAt: createdAt ?? this.createdAt,
     );
   }
 

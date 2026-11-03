@@ -1,3 +1,4 @@
+import '../domain/services/batch_correction.dart';
 import '../domain/models/app_user.dart';
 import 'dart:typed_data';
 
@@ -82,6 +83,10 @@ abstract class PharmacyRepository {
   String newMedicineId();
 
   Future<void> setBatchBlocked(String batchId, bool blocked);
+
+  /// Fixes a received batch's expiry, received date, MRP or purchase price.
+  /// Managers only; never changes the quantity; logged in the audit trail.
+  Future<void> correctBatch(String batchId, BatchCorrection correction);
 
   Future<CustomerCredit> createCustomer({
     required String name,

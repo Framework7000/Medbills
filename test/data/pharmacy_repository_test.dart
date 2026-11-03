@@ -12,6 +12,7 @@ import 'package:nuskha_pms/domain/models/sale_invoice.dart';
 import 'package:nuskha_pms/domain/models/scan_link.dart';
 import 'package:nuskha_pms/domain/models/schedule_type.dart';
 import 'package:nuskha_pms/domain/models/store_profile.dart';
+import 'package:nuskha_pms/domain/services/batch_correction.dart';
 import 'package:nuskha_pms/domain/services/checkout_engine.dart';
 import 'package:nuskha_pms/domain/services/invoice_number.dart';
 import 'package:nuskha_pms/domain/services/stock_receipt.dart';
@@ -43,6 +44,33 @@ void main() {
       db.collection('stores').doc(storeId).set({'storeId': storeId, 'name': 'Test Pharmacy'});
       return FirestorePharmacyRepository(db, storeId: storeId, actor: actor);
     }, as: (actor) => FirestorePharmacyRepository(db, storeId: storeId, actor: actor));
+
+    test('correcting a batch writes who changed what, old to new, to the audit log', () async {
+      db = FakeFirebaseFirestore();
+      final repo = FirestorePharmacyRepository(db, storeId: storeId, actor: owner);
+      await repo.receiveStock(receipt(medicine('dolo')));
+      final id = receipt(medicine('dolo')).batchId;
+      await repo.correctBatch(
+        id,
+        BatchCorrection(
+          expiryDate: DateTime(2029, 1, 31),
+          receivedAt: DateTime(2026, 9, 14),
+          mrpPaise: 3500,
+          purchasePricePaise: 2400,
+        ),
+      );
+      final audit = (await db.collection('stores').doc(storeId).collection('auditLog').get())
+          .docs
+          .map((d) => d.data())
+          .where((d) => d['action'] == 'batch_corrected')
+          .toList();
+      expect(audit, hasLength(1));
+      expect(audit.single['uid'], owner.uid);
+      expect(audit.single['storeId'], storeId);
+      expect(audit.single['refId'], id);
+      expect(audit.single['details'], allOf(contains('expiry 12/'), contains('→ 01/2029'), contains('MRP'), contains('→ ₹35')));
+      expect(audit.single['details'], isNot(contains('cost')), reason: 'only what changed is listed');
+    });
 
     test('documents carry storeId and live under the store (Rule 8)', () async {
       db = FakeFirebaseFirestore();
@@ -201,6 +229,72 @@ void contract(RepoFactory create, {required RepoFactory as}) {
     await expectLater(sell(1), throwsA(isA<CheckoutException>()));
     await repo.setBatchBlocked(doloBatchId, false);
     expect((await sell(1)).lines.single.quantity, 1);
+  });
+
+  test('a wrong expiry, received date or price on a batch can be corrected without touching stock or old bills', () async {
+    final before = (await repo.watchBatches().first).firstWhere((b) => b.id == doloBatchId);
+    final soldBill = await sell(2); // billed at the old price, from this batch
+    final stockAfterSale = (await repo.watchBatches().first).firstWhere((b) => b.id == doloBatchId).quantity;
+
+    final received = DateTime(2026, 9, 14);
+    await repo.correctBatch(
+      doloBatchId,
+      BatchCorrection(
+        expiryDate: DateTime(2028, 3, 31),
+        receivedAt: received,
+        mrpPaise: 3500,
+        purchasePricePaise: 2500,
+      ),
+    );
+
+    final after = (await repo.watchBatches().first).firstWhere((b) => b.id == doloBatchId);
+    expect(after.expiryDate, DateTime(2028, 3, 31));
+    expect(after.createdAt, received);
+    expect(after.mrpPaise, 3500);
+    expect(after.purchasePricePaise, 2500);
+    expect(after.quantity, stockAfterSale, reason: 'a correction never changes the stock');
+    expect(after.batchNumber, before.batchNumber);
+    expect(after.isBlocked, before.isBlocked);
+
+    // The bill already made keeps the price it was billed at.
+    final bills = await repo.salesBetween(DateTime(2000), DateTime.now().add(const Duration(days: 1)));
+    final old = bills.firstWhere((b) => b.id == soldBill.id).lines.single;
+    expect(old.mrpPaise, 3360, reason: 'billed at the MRP it had then');
+    expect(old.lineTotalPaise, soldBill.lines.single.lineTotalPaise);
+    expect(old.costPaise, soldBill.lines.single.costPaise);
+
+    // Nonsense is refused, with reasons.
+    await expectLater(
+      repo.correctBatch(
+        doloBatchId,
+        BatchCorrection(expiryDate: DateTime(2028, 3, 31), receivedAt: DateTime(2026, 9, 14), mrpPaise: 0, purchasePricePaise: 0),
+      ),
+      throwsA(isA<OperationException>()),
+    );
+    await expectLater(
+      repo.correctBatch(
+        doloBatchId,
+        BatchCorrection(
+          expiryDate: DateTime(2028, 3, 31),
+          receivedAt: DateTime.now().add(const Duration(days: 30)),
+          mrpPaise: 3500,
+          purchasePricePaise: 2500,
+        ),
+      ),
+      throwsA(isA<OperationException>()),
+    );
+    await expectLater(repo.correctBatch('no_such_batch', BatchCorrection(expiryDate: DateTime(2028, 3, 31), receivedAt: received, mrpPaise: 3500, purchasePricePaise: 2500)), throwsA(isA<OperationException>()));
+  });
+
+  test('only the owner or pharmacist can correct a batch', () async {
+    final asCounter = as(counter);
+    await expectLater(
+      asCounter.correctBatch(
+        doloBatchId,
+        BatchCorrection(expiryDate: DateTime(2028, 3, 31), receivedAt: DateTime(2026, 9, 14), mrpPaise: 3500, purchasePricePaise: 2500),
+      ),
+      throwsA(isA<NotPermittedException>()),
+    );
   });
 
   test('salesBetween returns only sales inside the range', () async {

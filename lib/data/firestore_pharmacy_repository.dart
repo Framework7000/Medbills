@@ -10,6 +10,7 @@ import '../domain/models/purchase_record.dart';
 import '../domain/models/sale_invoice.dart';
 import '../domain/models/scan_link.dart';
 import '../domain/models/store_profile.dart';
+import '../domain/services/batch_correction.dart';
 import '../domain/services/billing_calculator.dart';
 import '../domain/services/checkout_engine.dart';
 import '../domain/services/invoice_number.dart';
@@ -371,6 +372,29 @@ class FirestorePharmacyRepository implements PharmacyRepository {
       ..update(_batches.doc(batchId), {'isBlocked': blocked})
       ..set(_audit.doc(), _auditEntry(blocked ? 'batch_blocked' : 'batch_unblocked', batchId, batchId));
     await batch.commit();
+  }
+
+  @override
+  Future<void> correctBatch(String batchId, BatchCorrection correction) async {
+    requireManager(actor, 'correct a batch');
+    final problems = correction.problems(DateTime.now());
+    if (problems.isNotEmpty) throw OperationException(problems);
+    final ref = _batches.doc(batchId);
+    await _db.runTransaction<void>((tx) async {
+      final snap = await tx.get(ref); // read first (Rule 3)
+      if (!snap.exists) throw const OperationException(['Batch not found.']);
+      final batch = Batch.fromMap(_read(snap));
+      if (!correction.changes(batch)) return;
+      // Only these four fields: the quantity belongs to receiving, selling
+      // and cancelling, and may have changed since this screen opened.
+      tx.update(ref, {
+        'expiryDate': correction.expiryDate,
+        'createdAt': correction.receivedAt,
+        'mrpPaise': correction.mrpPaise,
+        'purchasePricePaise': correction.purchasePricePaise,
+      });
+      tx.set(_audit.doc(), _auditEntry('batch_corrected', batchId, '${batch.batchNumber}: ${correction.describeAgainst(batch)}'));
+    });
   }
 
   @override

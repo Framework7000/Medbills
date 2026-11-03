@@ -9,6 +9,7 @@ import '../domain/models/purchase_record.dart';
 import '../domain/models/sale_invoice.dart';
 import '../domain/models/scan_link.dart';
 import '../domain/models/store_profile.dart';
+import '../domain/services/batch_correction.dart';
 import '../domain/services/billing_calculator.dart';
 import '../domain/services/checkout_engine.dart';
 import '../domain/services/invoice_number.dart';
@@ -307,6 +308,22 @@ class LocalPharmacyRepository implements PharmacyRepository {
     final batch = _batches[batchId];
     if (batch == null) throw const OperationException(['Batch not found.']);
     _batches[batchId] = batch.copyWith(isBlocked: blocked);
+    _notify();
+  }
+
+  @override
+  Future<void> correctBatch(String batchId, BatchCorrection correction) async {
+    requireManager(actor, 'correct a batch');
+    final batch = _batches[batchId];
+    if (batch == null) throw const OperationException(['Batch not found.']);
+    final problems = correction.problems(DateTime.now());
+    if (problems.isNotEmpty) throw OperationException(problems);
+    _batches[batchId] = batch.copyWith(
+      expiryDate: correction.expiryDate,
+      createdAt: correction.receivedAt,
+      mrpPaise: correction.mrpPaise,
+      purchasePricePaise: correction.purchasePricePaise,
+    );
     _notify();
   }
 

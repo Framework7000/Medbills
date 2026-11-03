@@ -47,6 +47,18 @@ Nothing needs switching on.
 (An iPhone also works, but with a free Apple ID it must be renewed every
 7 days: see AltStore at altstore.io. Android has no such limit.)
 
+## Fixing a date or price after stock is received
+
+Stock → the medicine → the **pencil** on its batch. Change the expiry
+(month/year), the received date, the MRP or the cost, then **Save**. Owner
+and pharmacist only. The quantity can't be changed here, bills already made
+keep their prices, and every change is recorded (who, old → new).
+
+While reviewing a supplier bill, the bill date and every line's expiry can
+be edited before the stock is received. A finished sale's date can't be
+changed (it's the GST invoice date): cancel it with a reason, which puts the
+stock back, and bill again.
+
 ## First time, owner only
 
 Settings → **Update medicines** → **Update all**. This updates GST to 5% and
