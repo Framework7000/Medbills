@@ -59,7 +59,65 @@ be edited before the stock is received. A finished sale's date can't be
 changed (it's the GST invoice date): cancel it with a reason, which puts the
 stock back, and bill again.
 
+## Selling cheaper, discount, return
+
+- **One medicine cheaper:** tap its amount on the bill (the small pencil),
+  pick −5% / −10% or type the price or the line total. It can never go
+  above MRP. On the PC you can also double-click the name.
+- **Discount on the whole bill:** "Add discount" above Payable, ₹ or %.
+- The bill and its history show MRP, the discount and what was charged.
+  GST is worked out on the amount actually charged.
+- **Return:** Bills → the bill → **Return** → how many came back → Cash /
+  UPI / Udhaar reduced. The stock goes back, the refund counts on that
+  day's figures, and the bill shows "Returned". A bill with a return can't
+  be cancelled; return the rest instead.
+
+## Stock count and stock value
+
+Stock → the medicine → tap the stock on a batch (e.g. **23 × 60**). Type
+the packs counted (and loose tablets), or tap − / +, or **Empty this
+batch**. Choose a reason. Owner and pharmacist only, and each change is
+recorded. The green box at the top of Stock is the total stock value, at
+purchase rate and at MRP.
+
+## Purchases: cash or udhaar, distributors, payments
+
+- Receiving stock: pick the distributor (names come up as you type, the
+  same list on every device), bill no., bill date, and **Cash (paid)** or
+  **Udhaar (credit)**. Paid packs can be 4.5.
+- **Purchase & Payment** tab (PC: "Payments" on the left; phone: More):
+  - Udhaar owed, today's purchases (cash and udhaar separately), paid today.
+  - **To pay** list: bills due in 3 days or late, with a **Pay** button.
+  - **Add → Old bill (udhaar):** bills from before, so reminders work.
+  - **Add → Payment:** to whom, how much, Cash / UPI / Bank / Cheque, for
+    which bill, date.
+  - Tap any bill or payment to change it, or **Remove** it (it stays on
+    record as removed).
+- **Reports** is the Profit & Loss: sales by cash / UPI / udhaar (chart),
+  money in vs paid out (plus or minus), day by day, then three tables:
+  1 Sales, 2 Purchase & Payment (what was bought, from whom, bill no.,
+  payments), 3 Total.
+
+## The bill: format, sign and seal, WhatsApp
+
+Settings → **Bill look** → add the logo, signature and seal (mohar) photos
+(sign on white paper, clear photo). Settings → store details → email, bank
+details, terms. Every A4 bill then prints like the estimate format with
+the sign and seal above "Authorized Signatory".
+
+Bill → **WhatsApp** → "Send bill as PDF" or "Send bill as photo".
+On the phone the share sheet opens: pick WhatsApp and the chat. On the PC
+the file is saved in Downloads → "MedBills bills" and the customer's chat
+opens: drag the file into it.
+
 ## First time, owner only
 
-Settings → **Update medicines** → **Update all**. This updates GST to 5% and
-the Schedule H1 corrections. Past bills are not changed.
+1. Settings → **Update medicines** → **Update all**. This updates GST to 5%
+   and the Schedule H1 corrections. Past bills are not changed.
+2. **Publish the new database rules** (needed for Purchase & Payment and
+   returns, once): open https://console.firebase.google.com → project
+   **medbills-176df** → Firestore Database → **Rules**. Replace everything
+   with the contents of `firestore.rules` from
+   https://github.com/Framework7000/Medbills/blob/claude/medbills-repo-t8ueeh/firestore.rules
+   and press **Publish**. Until then, stock still goes in, but supplier
+   bills, payments and returns are refused.

@@ -14,6 +14,7 @@ import '../../domain/services/pack_units.dart';
 import '../../domain/services/scanned_code.dart';
 import '../../domain/services/smart_scan_classifier.dart';
 import '../../domain/services/stock_summary.dart';
+import '../../platform/bill_photo.dart';
 import '../../platform/code_reader.dart';
 import '../../platform/device_features.dart';
 import '../../platform/scan_target_memory.dart';
@@ -517,7 +518,9 @@ Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref, {St
     }
   }
 
-  final page = await readTextFromPhoto(photo.path);
+  // Turned upright and read (a bill photographed on its side reads sideways).
+  final prepared = await prepareBillPhoto(await photo.readAsBytes());
+  final page = prepared.page ?? await readTextFromPhoto(photo.path);
   if (!context.mounted) return null;
   if ((page == null || page.isEmpty) && eInvoice == null) {
     return const ScanFeedback('No printed text found. Hold it flat, in good light, and try again.', ok: false);
@@ -532,7 +535,7 @@ Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref, {St
       // (which pops it up for review) and the camera stays open.
       BillScan? sent;
       await receiveBillPhoto(context, ref, photo,
-          page: page, eInvoice: eInvoice, openReview: false, onSaved: (scan) => sent = scan);
+          page: page, prepared: prepared, eInvoice: eInvoice, openReview: false, onSaved: (scan) => sent = scan);
       final bill = sent;
       if (bill == null) return null; // the reason was already shown
       final lines = bill.draft.lines.length;
@@ -540,7 +543,7 @@ Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref, {St
           '${bill.draft.invoiceNumber.isEmpty ? '' : ' · ${bill.draft.invoiceNumber}'}'
           ' · $lines line${lines == 1 ? '' : 's'} read. Review it on the computer.');
     }
-    final saved = await receiveBillPhoto(context, ref, photo, page: page, eInvoice: eInvoice);
+    final saved = await receiveBillPhoto(context, ref, photo, page: page, prepared: prepared, eInvoice: eInvoice);
     // Receiving a bill opens its own review screen — close Smart Scan behind
     // it too, rather than leaving the camera open underneath.
     if (saved && context.mounted) Navigator.of(context).pop();
@@ -758,7 +761,7 @@ class ReceivingSummary extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
     final draft = ref.watch(receivingDraftProvider);
-    final packs = draft.lines.fold<int>(0, (sum, l) => sum + l.packs);
+    final packs = draft.lines.fold<num>(0, (sum, l) => sum + l.packs);
     if (draft.lines.isEmpty) {
       return Text(
         'Scan packs from a delivery — they build into one bill to receive.',

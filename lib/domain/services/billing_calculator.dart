@@ -22,6 +22,25 @@ class BillingCalculator {
     return (grossPaise * 10000 * 2 + divisor) ~/ (divisor * 2);
   }
 
+  /// Splits [amount] paise over [weights] in proportion, exactly: the shares
+  /// always add up to [amount] (largest remainder gets the odd paise).
+  static List<int> spread(int amount, List<int> weights) {
+    final total = weights.fold<int>(0, (s, w) => s + w);
+    if (total <= 0 || weights.isEmpty) return List.filled(weights.length, 0);
+    final shares = [for (final w in weights) amount * w ~/ total];
+    var left = amount - shares.fold<int>(0, (s, v) => s + v);
+    final order = List<int>.generate(weights.length, (i) => i)
+      ..sort((a, b) {
+        final c = (amount * weights[b] % total).compareTo(amount * weights[a] % total);
+        return c != 0 ? c : a.compareTo(b);
+      });
+    for (var k = 0; left > 0; k = (k + 1) % order.length) {
+      shares[order[k]]++;
+      left--;
+    }
+    return shares;
+  }
+
   static BillSummary summarise(Iterable<BillLine> lines) {
     final grossBySlab = <double, int>{};
     for (final line in lines) {

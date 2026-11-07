@@ -6,6 +6,7 @@ import '../domain/models/app_user.dart';
 import '../domain/models/bill_scan.dart';
 import '../platform/device_features.dart';
 import '../state/providers.dart';
+import 'accounts/purchase_payment_screen.dart';
 import 'billing/billing_screen.dart';
 import 'customers/customers_screen.dart';
 import 'inventory/inventory_screen.dart';
@@ -37,10 +38,15 @@ List<_Destination> _destinationsFor(UserRole role, {required bool udhaarEnabled}
             () => const CustomersScreen()),
       if (role.canManageStock)
         _Destination('Purchases', PhosphorIconsRegular.truck, PhosphorIconsRegular.truck, () => const PurchasesScreen()),
+      if (role.canManageStock)
+        _Destination(paymentsLabel, PhosphorIconsRegular.handCoins, PhosphorIconsRegular.handCoins,
+            () => const PurchasePaymentScreen()),
       if (role.canViewReports)
         _Destination('Reports', PhosphorIconsRegular.trendUp, PhosphorIconsRegular.trendUp, () => const ReportsScreen()),
       _Destination('Settings', PhosphorIconsRegular.gear, PhosphorIconsRegular.gear, () => const SettingsScreen()),
     ];
+
+const paymentsLabel = 'Purchase & Payment';
 
 /// Bottom-bar slots on a phone; the rest live behind "More".
 const _phonePrimaryCount = 4;
@@ -103,8 +109,20 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     // separate "check your notifications" step.
     final stock = ref.watch(stockIndexProvider).valueOrNull;
     final stockAlerts = stock == null ? 0 : stock.values.where((s) => s.isLowStock || s.isOutOfStock).length;
-    Widget icon(_Destination d, IconData icon) =>
-        d.label == 'Stock' && stockAlerts > 0 ? Badge(label: Text('$stockAlerts'), child: Icon(icon)) : Icon(icon);
+    // Supplier bills due within 3 days or late, on Purchase & Payment.
+    final toPay = user.role.canManageStock
+        ? ref.watch(supplierLedgerProvider).valueOrNull?.remindersAt(DateTime.now()).length ?? 0
+        : 0;
+    Widget icon(_Destination d, IconData icon) {
+      final count = d.label == 'Stock' ? stockAlerts : (d.label == paymentsLabel ? toPay : 0);
+      return count > 0
+          ? Badge(
+              label: Text('$count'),
+              backgroundColor: d.label == paymentsLabel ? AppColors.warning : null,
+              child: Icon(icon),
+            )
+          : Icon(icon);
+    }
 
     if (context.usesRail) {
       return Scaffold(
@@ -113,10 +131,12 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             // A short window (resized small, or a laptop split-view) must
             // never overflow the rail — scroll it instead of clipping.
             SingleChildScrollView(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: MediaQuery.sizeOf(context).height),
-                child: IntrinsicHeight(
-                  child: NavigationRail(
+              child: SizedBox(
+                // Header plus about 80 px per destination (icon, two-line
+                // label room, spacing), or the full window if taller.
+                height: [MediaQuery.sizeOf(context).height, 160.0 + destinations.length * 80].reduce((a, b) => a > b ? a : b),
+                child: Builder(
+                  builder: (context) => NavigationRail(
                     selectedIndex: _index,
                     labelType: NavigationRailLabelType.all,
                     leading: _RailHeader(user: user),
@@ -126,7 +146,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
                         NavigationRailDestination(
                           icon: icon(d, d.icon),
                           selectedIcon: icon(d, d.selectedIcon),
-                          label: Text(d.label),
+                          label: Text(d.label == paymentsLabel ? 'Payments' : d.label),
                         ),
                     ],
                   ),

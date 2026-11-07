@@ -1,3 +1,4 @@
+import 'package:nuskha_pms/domain/models/supplier_account.dart';
 import 'package:nuskha_pms/domain/models/batch.dart';
 import 'package:nuskha_pms/domain/models/medicine.dart';
 import 'package:nuskha_pms/domain/models/schedule_type.dart';
@@ -57,12 +58,17 @@ Batch batch(
 StockReceipt receipt(
   Medicine medicine, {
   String batchNumber = 'DL2401',
-  int packs = 10,
-  int freePacks = 0,
+  num packs = 10,
+  num freePacks = 0,
   int mrpPaise = 3360,
   int costPaise = 2400,
   int? expiryYear,
   int expiryMonth = 12,
+  String supplierName = 'Shree Distributors',
+  String supplierInvoiceNumber = 'SD/101',
+  PurchasePayment payment = PurchasePayment.credit,
+  DateTime? billDate,
+  int? billTotalPaise,
 }) {
   return StockReceipt(
     medicine: medicine,
@@ -73,7 +79,10 @@ StockReceipt receipt(
     freePacks: freePacks,
     purchasePricePaise: costPaise,
     mrpPaise: mrpPaise,
-    supplierName: 'Shree Distributors',
-    supplierInvoiceNumber: 'SD/101',
+    supplierName: supplierName,
+    supplierInvoiceNumber: supplierInvoiceNumber,
+    payment: payment,
+    billDate: billDate,
+    billTotalPaise: billTotalPaise,
   );
 }

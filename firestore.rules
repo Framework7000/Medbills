@@ -112,13 +112,60 @@ service cloud.firestore {
         allow create: if isMember(storeId) && storeIdMatches(storeId)
             && request.resource.data.createdBy == request.auth.uid
             && request.resource.data.status == 'completed';
+        // Managers may cancel a completed sale (with a reason), or record
+        // items the customer returned (units back per line, money refunded).
         allow update: if isMember(storeId)
             && isManager()
             && resource.data.status == 'completed'
-            && request.resource.data.status == 'cancelled'
-            && request.resource.data.cancellationReason is string
-            && request.resource.data.cancellationReason.size() > 0
-            && onlyChanged(['status', 'cancellationReason', 'cancelledAt', 'cancelledBy', 'cancelledByName']);
+            && ((request.resource.data.status == 'cancelled'
+                 && request.resource.data.cancellationReason is string
+                 && request.resource.data.cancellationReason.size() > 0
+                 && onlyChanged(['status', 'cancellationReason', 'cancelledAt', 'cancelledBy', 'cancelledByName']))
+                || (onlyChanged(['returnedUnits', 'refundedPaise'])
+                    && request.resource.data.returnedUnits is list
+                    && request.resource.data.refundedPaise is int
+                    && request.resource.data.refundedPaise >= 0));
+        allow delete: if false;
+      }
+
+      // Medicines a customer brought back. Append-only, like sales.
+      match /saleReturns/{returnId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && isManager() && storeIdMatches(storeId)
+            && request.resource.data.createdBy == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      // Distributors / MRs the shop buys from, their bills (cash or credit,
+      // and old bills still owed) and the payments made to them. Never
+      // deleted: a wrong entry is marked cancelled, and every change is in
+      // the audit log.
+      match /distributors/{distributorId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && isManager() && storeIdMatches(storeId);
+        allow update: if isMember(storeId) && isManager() && unchanged(['storeId', 'id']);
+        allow delete: if false;
+      }
+
+      match /supplierBills/{billId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && isManager() && storeIdMatches(storeId)
+            && request.resource.data.createdBy == request.auth.uid;
+        allow update: if isMember(storeId) && isManager()
+            && unchanged(['storeId', 'id', 'createdBy', 'createdAt']);
+        allow delete: if false;
+      }
+
+      match /supplierPayments/{paymentId} {
+        allow read: if isMember(storeId);
+        allow create: if isMember(storeId) && isManager() && storeIdMatches(storeId)
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.amountPaise is int
+            && request.resource.data.amountPaise > 0;
+        allow update: if isMember(storeId) && isManager()
+            && unchanged(['storeId', 'id', 'createdBy', 'createdAt'])
+            && request.resource.data.amountPaise is int
+            && request.resource.data.amountPaise > 0;
         allow delete: if false;
       }
 

@@ -9,8 +9,11 @@ import '../domain/models/medicine.dart';
 import '../domain/models/purchase_record.dart';
 import '../domain/models/sale_invoice.dart';
 import '../domain/models/scan_link.dart';
+import '../domain/models/sale_return.dart';
 import '../domain/models/store_profile.dart';
+import '../domain/models/supplier_account.dart';
 import '../domain/services/batch_correction.dart';
+import '../domain/services/stock_adjustment.dart';
 import '../domain/services/billing_calculator.dart';
 import '../domain/services/checkout_engine.dart';
 import '../domain/services/invoice_number.dart';
@@ -51,6 +54,10 @@ class FirestorePharmacyRepository implements PharmacyRepository {
   CollectionReference<Map<String, dynamic>> get _billImages => _store.collection('billScanImages');
   CollectionReference<Map<String, dynamic>> get _stations => _store.collection('stations');
   CollectionReference<Map<String, dynamic>> get _scanEvents => _store.collection('scanEvents');
+  CollectionReference<Map<String, dynamic>> get _returns => _store.collection('saleReturns');
+  CollectionReference<Map<String, dynamic>> get _distributors => _store.collection('distributors');
+  CollectionReference<Map<String, dynamic>> get _supplierBills => _store.collection('supplierBills');
+  CollectionReference<Map<String, dynamic>> get _supplierPayments => _store.collection('supplierPayments');
 
   /// Firestore documents are limited to 1 MiB; keep the picture well under.
   static const maxImageBytes = 900 * 1024;
@@ -58,6 +65,7 @@ class FirestorePharmacyRepository implements PharmacyRepository {
   /// Firestore returns [Timestamp]s; domain models only know [DateTime].
   static Object? _normalise(Object? value) {
     if (value is Timestamp) return value.toDate();
+    if (value is Blob) return value.bytes;
     if (value is Map) return value.map((k, v) => MapEntry(k as String, _normalise(v)));
     if (value is List) return value.map(_normalise).toList();
     return value;
@@ -185,6 +193,7 @@ class FirestorePharmacyRepository implements PharmacyRepository {
         slabs: plan.summary.slabs,
         grossPaise: plan.summary.grossPaise,
         payablePaise: plan.summary.payablePaise,
+        billDiscountPaise: request.billDiscountPaise,
         prescription: plan.lines.any((l) => l.scheduleType.requiresRegisterEntry) ? request.prescription : null,
       );
 
@@ -232,6 +241,9 @@ class FirestorePharmacyRepository implements PharmacyRepository {
       if (!saleSnap.exists) throw const OperationException(['Sale not found.']);
       final sale = SaleInvoice.fromMap(_read(saleSnap));
       if (sale.isCancelled) throw const OperationException(['This sale is already cancelled.']);
+      if (sale.hasReturns) {
+        throw const OperationException(['Items from this bill were returned. Return the rest instead of cancelling.']);
+      }
 
       final returned = <String, int>{};
       for (final line in sale.lines) {
@@ -285,8 +297,21 @@ class FirestorePharmacyRepository implements PharmacyRepository {
   }
 
   @override
-  Future<void> receiveStock(StockReceipt receipt) async {
+  Future<bool> receiveStock(StockReceipt receipt) async {
     requireManager(actor, 'receive stock');
+    try {
+      await _receiveStock(receipt, withAccounts: true);
+      return true;
+    } on FirebaseException catch (e) {
+      // Until the owner publishes the rules for Purchase & Payment, the
+      // supplier-bill part is refused; the stock itself must still go in.
+      if (e.code != 'permission-denied' || receipt.distributorId.isEmpty) rethrow;
+      await _receiveStock(receipt, withAccounts: false);
+      return false;
+    }
+  }
+
+  Future<void> _receiveStock(StockReceipt receipt, {required bool withAccounts}) async {
     final medicine = receipt.medicine.copyWith(storeId: storeId);
     final batchRef = _batches.doc(receipt.batchId);
     final medicineRef = _medicines.doc(medicine.id);
@@ -297,6 +322,11 @@ class FirestorePharmacyRepository implements PharmacyRepository {
       final medicineSnap = await tx.get(medicineRef);
       final batchSnap = await tx.get(batchRef);
       final existing = batchSnap.exists ? Batch.fromMap(_read(batchSnap)) : null;
+      final hasSupplier = withAccounts && receipt.distributorId.isNotEmpty;
+      final billRef = hasSupplier ? _supplierBills.doc(receipt.supplierBillId(now)) : null;
+      final distRef = hasSupplier ? _distributors.doc(receipt.distributorId) : null;
+      final billSnap = billRef == null ? null : await tx.get(billRef);
+      final distSnap = distRef == null ? null : await tx.get(distRef);
 
       final problems = receipt.validate(now: now, existing: existing);
       if (problems.isNotEmpty) throw OperationException(problems);
@@ -340,7 +370,7 @@ class FirestorePharmacyRepository implements PharmacyRepository {
           freeQuantity: receipt.freeUnits,
           purchasePricePaise: receipt.purchasePricePaise,
           mrpPaise: receipt.mrpPaise,
-          supplierName: receipt.supplierName.trim(),
+          supplierName: receipt.distributorName,
           supplierInvoiceNumber: receipt.supplierInvoiceNumber.trim(),
           billScanId: receipt.billScanId,
           createdAt: now,
@@ -348,6 +378,256 @@ class FirestorePharmacyRepository implements PharmacyRepository {
           createdByName: actor.name,
         ).toMap(),
       );
+      if (billRef != null && distRef != null) {
+        final before = billSnap!.exists ? SupplierBill.fromMap(_read(billSnap)) : null;
+        final bill = receipt.billAfter(before, storeId: storeId, uid: actor.uid, userName: actor.name, now: now)!;
+        if (before == null) {
+          tx.set(billRef, bill.toMap());
+        } else {
+          tx.update(billRef, {
+            'itemsPaise': bill.itemsPaise,
+            'amountPaise': bill.amountPaise,
+            'payment': bill.payment.name,
+            'cancelled': false,
+          });
+        }
+        if (!distSnap!.exists) {
+          tx.set(distRef, Distributor(id: distRef.id, storeId: storeId, name: receipt.distributorName, createdAt: now).toMap());
+        }
+      }
+    });
+  }
+
+  @override
+  Future<SaleReturn> returnSaleItems({
+    required String saleId,
+    required Map<int, int> units,
+    required RefundMode refundMode,
+    String reason = '',
+  }) async {
+    requireManager(actor, 'take back a return');
+    final returnRef = _returns.doc();
+    return _db.runTransaction<SaleReturn>((tx) async {
+      final saleSnap = await tx.get(_sales.doc(saleId));
+      if (!saleSnap.exists) throw const OperationException(['Bill not found.']);
+      final sale = SaleInvoice.fromMap(_read(saleSnap));
+      final ReturnPlan plan;
+      try {
+        plan = SaleReturnPlanner.plan(sale: sale, units: units, mode: refundMode);
+      } on ReturnException catch (e) {
+        throw OperationException(e.problems);
+      }
+      final back = <String, int>{};
+      for (final l in plan.lines) {
+        back.update(l.batchId, (v) => v + l.quantity, ifAbsent: () => l.quantity);
+      }
+      final quantities = <String, int>{};
+      for (final id in back.keys) {
+        final snap = await tx.get(_batches.doc(id));
+        if (snap.exists) quantities[id] = (snap.data()!['quantity'] as num).toInt();
+      }
+      CustomerCredit? customer;
+      if (refundMode == RefundMode.udhaar) {
+        final snap = sale.customerId == null ? null : await tx.get(_customers.doc(sale.customerId));
+        if (snap == null || !snap.exists) throw const OperationException(['The udhaar account no longer exists.']);
+        customer = CustomerCredit.fromMap(_read(snap));
+        if (plan.refundPaise > customer.outstandingBalancePaise) {
+          throw OperationException(['Only ${formatRupees(customer.outstandingBalancePaise)} udhaar is left; '
+              'give the rest back in cash.']);
+        }
+      }
+
+      final now = DateTime.now();
+      final ret = SaleReturn(
+        id: returnRef.id,
+        storeId: storeId,
+        saleId: sale.id,
+        invoiceNumber: sale.invoiceNumber,
+        customerName: sale.customerName,
+        lines: plan.lines,
+        refundMode: refundMode,
+        reason: reason.trim(),
+        createdAt: now,
+        createdBy: actor.uid,
+        createdByName: actor.name,
+      );
+      for (final entry in quantities.entries) {
+        tx.update(_batches.doc(entry.key), {'quantity': entry.value + back[entry.key]!});
+      }
+      tx.update(_sales.doc(sale.id), {
+        'returnedUnits': plan.newReturnedUnits,
+        'refundedPaise': sale.refundedPaise + plan.refundPaise,
+      });
+      tx.set(returnRef, ret.toMap());
+      if (customer != null) {
+        final entryRef = _customers.doc(customer.id).collection('ledger').doc();
+        tx.update(_customers.doc(customer.id), {
+          'outstandingBalancePaise': customer.outstandingBalancePaise - plan.refundPaise,
+        });
+        tx.set(
+          entryRef,
+          CreditLedgerEntry(
+            id: entryRef.id,
+            storeId: storeId,
+            customerId: customer.id,
+            type: CreditEntryType.saleCancelled,
+            amountPaise: plan.refundPaise,
+            invoiceNumber: sale.invoiceNumber,
+            notes: 'Return${reason.trim().isEmpty ? '' : ': ${reason.trim()}'}',
+            timestamp: now,
+            createdBy: actor.uid,
+            createdByName: actor.name,
+          ).toMap(),
+        );
+      }
+      tx.set(_audit.doc(), _auditEntry('sale_return', sale.id,
+          '${sale.invoiceNumber}: ${formatRupees(plan.refundPaise)} back (${refundMode.label})'
+              '${reason.trim().isEmpty ? '' : ' — ${reason.trim()}'}'));
+      return ret;
+    });
+  }
+
+  @override
+  Future<List<SaleReturn>> returnsBetween(DateTime from, DateTime to) async {
+    final q = await _returns
+        .where('createdAt', isGreaterThanOrEqualTo: from)
+        .where('createdAt', isLessThan: to)
+        .orderBy('createdAt', descending: true)
+        .get();
+    return q.docs.map((d) => SaleReturn.fromMap(_read(d))).toList();
+  }
+
+  @override
+  Stream<List<SaleReturn>> watchReturnsFor(String saleId) => _returns
+      .where('saleId', isEqualTo: saleId)
+      .snapshots()
+      .map((q) => q.docs.map((d) => SaleReturn.fromMap(_read(d))).toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
+
+  @override
+  Future<void> adjustBatchStock(String batchId, StockAdjustment adjustment) async {
+    requireManager(actor, 'change stock');
+    final problems = adjustment.problems();
+    if (problems.isNotEmpty) throw OperationException(problems);
+    final ref = _batches.doc(batchId);
+    await _db.runTransaction<void>((tx) async {
+      final snap = await tx.get(ref); // read first (Rule 3)
+      if (!snap.exists) throw const OperationException(['Batch not found.']);
+      final batch = Batch.fromMap(_read(snap));
+      if (batch.quantity == adjustment.newQuantity) return;
+      tx.update(ref, {'quantity': adjustment.newQuantity});
+      tx.set(_audit.doc(), _auditEntry('stock_adjusted', batchId, '${batch.batchNumber}: ${adjustment.describe(batch.quantity)}'));
+    });
+  }
+
+  // ---------------------------------------- distributors, purchase & payment
+
+  @override
+  Stream<List<Distributor>> watchDistributors() => _distributors.snapshots().map((q) =>
+      q.docs.map((d) => Distributor.fromMap(_read(d))).toList()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase())));
+
+  @override
+  Stream<List<SupplierBill>> watchSupplierBills() => _supplierBills.snapshots().map((q) =>
+      q.docs.map((d) => SupplierBill.fromMap(_read(d))).toList()..sort((a, b) => b.billDate.compareTo(a.billDate)));
+
+  @override
+  Stream<List<SupplierPayment>> watchSupplierPayments() => _supplierPayments.snapshots().map((q) =>
+      q.docs.map((d) => SupplierPayment.fromMap(_read(d))).toList()..sort((a, b) => b.paidOn.compareTo(a.paidOn)));
+
+  @override
+  Future<void> saveDistributor(Distributor distributor) async {
+    requireManager(actor, 'edit distributors');
+    final problems = distributorProblems(distributor);
+    if (problems.isNotEmpty) throw OperationException(problems);
+    final ref = _distributors.doc(distributor.id);
+    final before = await ref.get();
+    final batch = _db.batch()
+      ..set(ref, distributor.copyWith().toMap()..['storeId'] = storeId)
+      ..set(_audit.doc(), _auditEntry('distributor_saved', distributor.id, distributor.name));
+    final oldName = before.exists ? readName(before.data()) : null;
+    if (oldName != null && oldName != distributor.name) {
+      // Bills and payments show the name; keep them in step.
+      final bills = await _supplierBills.where('distributorId', isEqualTo: distributor.id).get();
+      final pays = await _supplierPayments.where('distributorId', isEqualTo: distributor.id).get();
+      for (final d in [...bills.docs, ...pays.docs]) {
+        batch.update(d.reference, {'distributorName': distributor.name});
+      }
+    }
+    await batch.commit();
+  }
+
+  static String? readName(Map<String, dynamic>? data) => data?['name'] as String?;
+
+  @override
+  Future<void> saveSupplierBill(SupplierBill bill) async {
+    requireManager(actor, 'record supplier bills');
+    final problems = supplierBillProblems(bill);
+    if (problems.isNotEmpty) throw OperationException(problems);
+    final distRef = _distributors.doc(bill.distributorId);
+    await _db.runTransaction<void>((tx) async {
+      final ref = _supplierBills.doc(bill.id);
+      final snap = await tx.get(ref);
+      final distSnap = await tx.get(distRef);
+      final data = bill.toMap()..['storeId'] = storeId;
+      if (snap.exists) {
+        final before = SupplierBill.fromMap(_read(snap));
+        data
+          ..remove('createdAt')
+          ..remove('createdBy')
+          ..remove('createdByName')
+          // Stock received meanwhile on another device keeps counting.
+          ..['itemsPaise'] = before.itemsPaise;
+        tx.update(ref, data);
+        tx.set(_audit.doc(), _auditEntry('supplier_bill_edited', bill.id,
+            '${bill.distributorName} ${bill.billNumber}: ${formatRupees(before.totalPaise)} → ${formatRupees(bill.totalPaise)}'
+                '${before.payment != bill.payment ? ', ${before.payment.label} → ${bill.payment.label}' : ''}'
+                '${bill.cancelled && !before.cancelled ? ', removed' : ''}'));
+      } else {
+        tx.set(ref, data
+          ..['createdBy'] = actor.uid
+          ..['createdByName'] = actor.name);
+        tx.set(_audit.doc(), _auditEntry('supplier_bill_added', bill.id,
+            '${bill.distributorName} ${bill.billNumber}: ${formatRupees(bill.totalPaise)} ${bill.payment.label}'));
+      }
+      if (!distSnap.exists) {
+        tx.set(distRef, Distributor(id: bill.distributorId, storeId: storeId, name: bill.distributorName, createdAt: DateTime.now()).toMap());
+      }
+    });
+  }
+
+  @override
+  Future<void> saveSupplierPayment(SupplierPayment payment) async {
+    requireManager(actor, 'record payments');
+    final problems = supplierPaymentProblems(payment);
+    if (problems.isNotEmpty) throw OperationException(problems);
+    final distRef = _distributors.doc(payment.distributorId);
+    await _db.runTransaction<void>((tx) async {
+      final ref = _supplierPayments.doc(payment.id);
+      final snap = await tx.get(ref);
+      final distSnap = await tx.get(distRef);
+      final data = payment.toMap()..['storeId'] = storeId;
+      if (snap.exists) {
+        final before = SupplierPayment.fromMap(_read(snap));
+        data
+          ..remove('createdAt')
+          ..remove('createdBy')
+          ..remove('createdByName');
+        tx.update(ref, data);
+        tx.set(_audit.doc(), _auditEntry('supplier_payment_edited', payment.id,
+            '${payment.distributorName}: ${formatRupees(before.amountPaise)} → ${formatRupees(payment.amountPaise)}'
+                '${payment.cancelled && !before.cancelled ? ', removed' : ''}'));
+      } else {
+        tx.set(ref, data
+          ..['createdBy'] = actor.uid
+          ..['createdByName'] = actor.name);
+        tx.set(_audit.doc(), _auditEntry('supplier_payment_added', payment.id,
+            '${payment.distributorName}: ${formatRupees(payment.amountPaise)} ${payment.via.label}'
+                '${payment.billNumber.isEmpty ? '' : ' (bill ${payment.billNumber})'}'));
+      }
+      if (!distSnap.exists) {
+        tx.set(distRef, Distributor(id: payment.distributorId, storeId: storeId, name: payment.distributorName, createdAt: DateTime.now()).toMap());
+      }
     });
   }
 
@@ -459,6 +739,10 @@ class FirestorePharmacyRepository implements PharmacyRepository {
   Future<void> updateStore(StoreProfile profile) async {
     if (!actor.role.canEditStore) throw const NotPermittedException('Only the owner can edit store details.');
     final data = profile.toMap()..remove('storeId');
+    for (final key in ['logoImage', 'signatureImage', 'sealImage']) {
+      final v = data[key];
+      if (v is Uint8List) data[key] = Blob(v);
+    }
     final batch = _db.batch()
       ..update(_store, data)
       ..set(_audit.doc(), _auditEntry('store_updated', storeId, profile.name));

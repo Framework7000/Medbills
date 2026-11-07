@@ -9,8 +9,8 @@ class BillDraftLine {
   final String batchNumber;
   final int? expiryMonth;
   final int? expiryYear;
-  final int packs;
-  final int freePacks;
+  final num packs; // may be 4.5 (half a box)
+  final num freePacks;
   final int ratePaise; // per pack
   final int mrpPaise; // per pack
   final bool include; // false = skip this line when receiving
@@ -37,8 +37,8 @@ class BillDraftLine {
     String? batchNumber,
     int? expiryMonth,
     int? expiryYear,
-    int? packs,
-    int? freePacks,
+    num? packs,
+    num? freePacks,
     int? ratePaise,
     int? mrpPaise,
     bool? include,
@@ -85,8 +85,8 @@ class BillDraftLine {
       batchNumber: readString(map['batchNumber']),
       expiryMonth: month == 0 ? null : month,
       expiryYear: year == 0 ? null : year,
-      packs: readInt(map['packs']),
-      freePacks: readInt(map['freePacks']),
+      packs: readNum(map['packs']),
+      freePacks: readNum(map['freePacks']),
       ratePaise: readInt(map['ratePaise']),
       mrpPaise: readInt(map['mrpPaise']),
       include: map['include'] != false,
@@ -104,8 +104,11 @@ class BillDraft {
   final DateTime? invoiceDate;
   final int? billTotalPaise;
   final List<BillDraftLine> lines;
+  /// 'cash' (paid on delivery) or 'credit' (to be paid later).
+  final String payment;
 
   const BillDraft({
+    this.payment = 'credit',
     this.supplierName = '',
     this.supplierGstin = '',
     this.supplierDrugLicence = '',
@@ -123,8 +126,10 @@ class BillDraft {
     DateTime? invoiceDate,
     int? billTotalPaise,
     List<BillDraftLine>? lines,
+    String? payment,
   }) {
     return BillDraft(
+      payment: payment ?? this.payment,
       supplierName: supplierName ?? this.supplierName,
       supplierGstin: supplierGstin ?? this.supplierGstin,
       supplierDrugLicence: supplierDrugLicence ?? this.supplierDrugLicence,
@@ -138,7 +143,7 @@ class BillDraft {
   /// Sum of the included lines at the purchase rate (before any GST the
   /// supplier adds on top), for comparing with the bill's printed total.
   int get linesTotalPaise =>
-      lines.where((l) => l.include || l.received).fold(0, (sum, l) => sum + l.packs * l.ratePaise);
+      lines.where((l) => l.include || l.received).fold(0, (sum, l) => sum + (l.packs * l.ratePaise).round());
 
   Map<String, dynamic> toMap() => {
         'supplierName': supplierName,
@@ -148,6 +153,7 @@ class BillDraft {
         'invoiceDate': invoiceDate,
         'billTotalPaise': billTotalPaise,
         'lines': lines.map((l) => l.toMap()).toList(),
+        'payment': payment,
       };
 
   factory BillDraft.fromMap(Map<String, dynamic> map) {
@@ -159,6 +165,7 @@ class BillDraft {
       invoiceNumber: readString(map['invoiceNumber']),
       invoiceDate: readDate(map['invoiceDate']),
       billTotalPaise: total == null ? null : readInt(total),
+      payment: map['payment'] == 'cash' ? 'cash' : 'credit',
       lines: [
         for (final l in (map['lines'] as List? ?? const []))
           BillDraftLine.fromMap(Map<String, dynamic>.from(l as Map)),

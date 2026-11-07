@@ -181,6 +181,14 @@ class _SaleTile extends StatelessWidget {
           const Pill('Cancelled', foreground: AppColors.danger, background: AppColors.dangerContainer)
         else if (sale.paymentMode == PaymentMode.credit)
           const Pill('Udhaar', foreground: AppColors.warning, background: AppColors.warningContainer),
+        if (sale.hasReturns) ...[
+          const SizedBox(width: Space.xs),
+          const Pill('Return', foreground: AppColors.warning, background: AppColors.warningContainer),
+        ],
+        if (sale.discountPaise > 0) ...[
+          const SizedBox(width: Space.xs),
+          const Pill('Discount', foreground: AppColors.accent, background: AppColors.primaryContainer),
+        ],
       ]),
       subtitle: Text(
         '${DateFormat('d MMM, hh:mm a').format(sale.createdAt)} · $who · '

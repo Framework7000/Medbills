@@ -7,11 +7,13 @@ import '../../domain/models/sale_invoice.dart';
 import '../../domain/models/store_profile.dart';
 import '../../domain/services/billing_calculator.dart';
 import '../../domain/services/pack_units.dart';
+import '../../platform/bill_share.dart';
 import '../../platform/invoice_pdf.dart';
 import '../../platform/whatsapp_bill.dart';
 import '../../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'return_dialog.dart';
 
 Future<void> showInvoice(BuildContext context, SaleInvoice sale, {bool justCompleted = false}) {
   return Navigator.of(context).push(MaterialPageRoute<void>(
@@ -39,7 +41,14 @@ class InvoiceScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(justCompleted ? 'Sale complete' : sale.invoiceNumber),
         actions: [
-          if (user != null && user.role.canCancelSales && !sale.isCancelled)
+          if (user != null && user.role.canCancelSales && !sale.isCancelled && !sale.fullyReturned)
+            TextButton.icon(
+              key: const ValueKey('return-items'),
+              onPressed: () => showReturnDialog(context, ref, sale),
+              icon: const Icon(PhosphorIconsRegular.arrowUUpLeft),
+              label: const Text('Return'),
+            ),
+          if (user != null && user.role.canCancelSales && !sale.isCancelled && !sale.hasReturns)
             IconButton(
               tooltip: 'Cancel this sale',
               icon: const Icon(PhosphorIconsRegular.prohibit),
@@ -152,6 +161,24 @@ class _InvoiceActionsState extends State<_InvoiceActions> {
     }
   }
 
+  Future<void> _share(BillFormat format) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final saved = await shareBill(widget.sale, widget.store, format);
+      if (!mounted) return;
+      if (saved == null) {
+        showMessage(context, 'Could not make the bill ${format == BillFormat.pdf ? 'PDF' : 'photo'}.', error: true);
+      } else if (saved.isNotEmpty) {
+        showMessage(context, 'Bill saved: $saved\nWhatsApp is opening — drag the file into the chat.');
+      }
+    } catch (e) {
+      if (mounted) showMessage(context, friendlyError(e), error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final sale = widget.sale;
@@ -177,10 +204,28 @@ class _InvoiceActionsState extends State<_InvoiceActions> {
           icon: const Icon(PhosphorIconsRegular.filePdf),
           label: const Text('PDF'),
         ),
-        OutlinedButton.icon(
-          onPressed: _busy ? null : () => _run(() => WhatsAppBill.send(sale, store), 'Could not open WhatsApp.'),
-          icon: const Icon(PhosphorIconsRegular.chatCircle),
-          label: const Text('WhatsApp'),
+        PopupMenuButton<String>(
+          key: const ValueKey('whatsapp-menu'),
+          enabled: !_busy,
+          tooltip: 'Send on WhatsApp',
+          onSelected: (v) => v == 'text'
+              ? _run(() => WhatsAppBill.send(sale, store), 'Could not open WhatsApp.')
+              : _share(v == 'pdf' ? BillFormat.pdf : BillFormat.photo),
+          itemBuilder: (_) => const [
+            PopupMenuItem(
+                value: 'pdf', child: ListTile(leading: Icon(PhosphorIconsRegular.filePdf), title: Text('Send bill as PDF'))),
+            PopupMenuItem(
+                value: 'photo', child: ListTile(leading: Icon(PhosphorIconsRegular.image), title: Text('Send bill as photo'))),
+            PopupMenuItem(
+                value: 'text', child: ListTile(leading: Icon(PhosphorIconsRegular.chatText), title: Text('Send as text message'))),
+          ],
+          child: IgnorePointer(
+            child: OutlinedButton.icon(
+              onPressed: _busy ? null : () {},
+              icon: const Icon(PhosphorIconsRegular.chatCircle),
+              label: const Text('WhatsApp'),
+            ),
+          ),
         ),
         if (_busy) const Padding(padding: EdgeInsets.all(Space.s), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
       ],
@@ -253,13 +298,24 @@ class InvoicePaperView extends StatelessWidget {
                     ),
                     Text(
                       '${line.unitsPerPack > 1 ? PackUnits.describe(line.quantity, line.unitsPerPack) : line.quantity} '
-                      '@ ${formatRupees(line.mrpPaise)}${line.unitsPerPack > 1 ? '/pack' : ''}',
+                      '@ ${formatRupees(line.ratePaise)}${line.unitsPerPack > 1 ? '/pack' : ''}'
+                      '${line.ratePaise < line.mrpPaise ? ' (MRP ${formatRupees(line.mrpPaise)})' : ''}',
                       style: muted,
                     ),
+                    if (sale.returnedOf(sale.lines.indexOf(line)) > 0)
+                      Text(
+                        'Returned ${PackUnits.describe(sale.returnedOf(sale.lines.indexOf(line)), line.unitsPerPack)}',
+                        style: text.bodySmall?.copyWith(color: AppColors.warning),
+                      ),
                   ]),
                 ),
                 const SizedBox(width: Space.m),
-                Text(formatRupees(line.lineTotalPaise), style: text.bodyLarge),
+                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  if (line.discountPaise > 0)
+                    Text(formatRupees(line.mrpLinePaise),
+                        style: muted?.copyWith(decoration: TextDecoration.lineThrough)),
+                  Text(formatRupees(line.lineTotalPaise), style: text.bodyLarge),
+                ]),
               ]),
             ),
             const Divider(),
@@ -270,10 +326,18 @@ class InvoicePaperView extends StatelessWidget {
                 '(CGST ${formatRupees(slab.cgstPaise)} + SGST ${formatRupees(slab.sgstPaise)})',
                 formatRupees(slab.gstPaise)),
           AmountRow('Taxable value', formatRupees(sale.taxablePaise)),
-          AmountRow('Total (MRP, incl. GST)', formatRupees(sale.grossPaise)),
+          if (sale.discountPaise > 0) ...[
+            AmountRow('MRP total', formatRupees(sale.mrpTotalPaise)),
+            AmountRow('Discount', '−${formatRupees(sale.discountPaise)}'),
+          ],
+          AmountRow('Total (incl. GST)', formatRupees(sale.grossPaise)),
           AmountRow('Round off', formatRupees(sale.roundOffPaise)),
           const Divider(height: Space.l),
           AmountRow('Amount payable', formatRupees(sale.payablePaise), emphasis: true),
+          if (sale.refundedPaise > 0) ...[
+            AmountRow('Returned (refunded)', '−${formatRupees(sale.refundedPaise)}'),
+            AmountRow('Net after returns', formatRupees(sale.payablePaise - sale.refundedPaise), emphasis: true),
+          ],
           if (sale.isCancelled) ...[
             const SizedBox(height: Space.m),
             Text(

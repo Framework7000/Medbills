@@ -11,7 +11,11 @@ import 'package:nuskha_pms/domain/models/customer_credit.dart';
 import 'package:nuskha_pms/domain/models/sale_invoice.dart';
 import 'package:nuskha_pms/domain/models/scan_link.dart';
 import 'package:nuskha_pms/domain/models/schedule_type.dart';
+import 'package:nuskha_pms/domain/models/sale_return.dart';
 import 'package:nuskha_pms/domain/models/store_profile.dart';
+import 'package:nuskha_pms/domain/models/supplier_account.dart';
+import 'package:nuskha_pms/domain/services/stock_adjustment.dart';
+import 'package:nuskha_pms/domain/services/supplier_ledger.dart';
 import 'package:nuskha_pms/domain/services/batch_correction.dart';
 import 'package:nuskha_pms/domain/services/checkout_engine.dart';
 import 'package:nuskha_pms/domain/services/invoice_number.dart';
@@ -222,6 +226,198 @@ void contract(RepoFactory create, {required RepoFactory as}) {
       CreditEntryType.paymentReceived,
       CreditEntryType.saleCancelled,
     });
+  });
+
+  test('a line sold below MRP and a bill discount are saved on the bill; never above MRP', () async {
+    // 30 tablets = 2 strips at MRP ₹33.60 = ₹67.20; sold at ₹30/strip = ₹60, then ₹5 off the bill.
+    final sale = await repo.checkout(CheckoutRequest(
+      lines: [CheckoutLineRequest(medicineId: 'dolo', batchId: doloBatchId, quantity: 30, ratePaise: 3000)],
+      paymentMode: PaymentMode.cash,
+      billDiscountPaise: 500,
+    ));
+    final line = sale.lines.single;
+    expect(line.mrpLinePaise, 6720);
+    expect(line.ratePaise, 3000);
+    expect(line.lineTotalPaise, 5500);
+    expect(sale.grossPaise, 5500);
+    expect(sale.payablePaise, 5500);
+    expect(sale.mrpTotalPaise, 6720);
+    expect(sale.discountPaise, 1220);
+    expect(sale.billDiscountPaise, 500);
+    expect(sale.taxablePaise + sale.gstPaise, 5500, reason: 'GST comes out of what was charged');
+    final stored = (await repo.watchRecentSales().first).single;
+    expect(stored.discountPaise, 1220);
+    expect(stored.lines.single.lineTotalPaise, 5500);
+
+    await expectLater(
+      repo.checkout(CheckoutRequest(
+        lines: [CheckoutLineRequest(medicineId: 'dolo', batchId: doloBatchId, quantity: 15, ratePaise: 3400)],
+        paymentMode: PaymentMode.cash,
+      )),
+      throwsA(isA<CheckoutException>().having((e) => e.toString(), 'message', contains('above MRP'))),
+    );
+    await expectLater(
+      repo.checkout(CheckoutRequest(
+        lines: [CheckoutLineRequest(medicineId: 'dolo', batchId: doloBatchId, quantity: 15)],
+        paymentMode: PaymentMode.cash,
+        billDiscountPaise: 3360,
+      )),
+      throwsA(isA<CheckoutException>()),
+    );
+    expect(await stock(), 120, reason: 'refused bills take no stock');
+  });
+
+  test('a return puts stock back, refunds what the customer paid, and the bill cannot then be cancelled', () async {
+    final sale = await sell(30); // ₹67.20 charged
+    expect(await stock(), 120);
+    final asCounter = as(counter);
+    await expectLater(
+      asCounter.returnSaleItems(saleId: sale.id, units: {0: 15}, refundMode: RefundMode.cash),
+      throwsA(isA<NotPermittedException>()),
+    );
+    final asOwner = as(owner);
+    final first = await asOwner.returnSaleItems(saleId: sale.id, units: {0: 10}, refundMode: RefundMode.cash, reason: 'Not needed');
+    expect(first.refundPaise, 2240); // 10 of 30 tablets of ₹67.20
+    expect(await stock(), 130);
+    await expectLater(
+      asOwner.returnSaleItems(saleId: sale.id, units: {0: 21}, refundMode: RefundMode.cash),
+      throwsA(isA<OperationException>()),
+    );
+    final rest = await asOwner.returnSaleItems(saleId: sale.id, units: {0: 20}, refundMode: RefundMode.upi);
+    expect(first.refundPaise + rest.refundPaise, 6720, reason: 'never more than the line cost');
+    expect(await stock(), 150);
+    final updated = (await asOwner.watchRecentSales().first).single;
+    expect(updated.returnedUnits, [30]);
+    expect(updated.refundedPaise, 6720);
+    expect(updated.fullyReturned, isTrue);
+    await expectLater(asOwner.cancelSale(sale.id, 'oops'), throwsA(isA<OperationException>()));
+
+    final today = DateTime.now();
+    final returns = await asOwner.returnsBetween(DateTime(today.year, today.month, today.day), today.add(const Duration(days: 1)));
+    expect(returns.map((r) => r.refundPaise).toList()..sort(), [2240, 4480]);
+    expect((await asOwner.watchReturnsFor(sale.id).first), hasLength(2));
+  });
+
+  test('a return on an udhaar bill lowers what the customer owes', () async {
+    final customer = await repo.createCustomer(name: 'Ravi', phone: '98260');
+    final sale = await sell(15, mode: PaymentMode.credit, customerId: customer.id); // ₹33.60 → ₹34
+    await expectLater(
+      repo.returnSaleItems(saleId: (await sell(1)).id, units: {0: 1}, refundMode: RefundMode.udhaar),
+      throwsA(isA<OperationException>()),
+      reason: 'a cash bill has no udhaar to reduce',
+    );
+    await repo.returnSaleItems(saleId: sale.id, units: {0: 15}, refundMode: RefundMode.udhaar);
+    final c = (await repo.watchCustomers().first).single;
+    expect(c.outstandingBalancePaise, 3400 - 3360);
+  });
+
+  test('stock can be set to a counted figure, emptied, by managers only', () async {
+    await expectLater(
+      as(counter).adjustBatchStock(doloBatchId, const StockAdjustment(newQuantity: 200, reason: AdjustReason.count)),
+      throwsA(isA<NotPermittedException>()),
+    );
+    final asOwner = as(owner);
+    await asOwner.adjustBatchStock(doloBatchId, const StockAdjustment(newQuantity: 23 * 15, reason: AdjustReason.count));
+    expect(await stock(), 345);
+    await asOwner.adjustBatchStock(doloBatchId, const StockAdjustment(newQuantity: 0, reason: AdjustReason.damaged));
+    expect(await stock(), 0);
+    await expectLater(
+      asOwner.adjustBatchStock(doloBatchId, const StockAdjustment(newQuantity: -1, reason: AdjustReason.count)),
+      throwsA(isA<OperationException>()),
+    );
+    await expectLater(
+      asOwner.adjustBatchStock(doloBatchId, const StockAdjustment(newQuantity: 5, reason: AdjustReason.other)),
+      throwsA(isA<OperationException>()),
+      reason: '"Other" needs a reason written',
+    );
+  });
+
+  Future<SupplierLedger> ledger() async => SupplierLedger.build(
+        distributors: await repo.watchDistributors().first,
+        bills: await repo.watchSupplierBills().first,
+        payments: await repo.watchSupplierPayments().first,
+      );
+
+  test('stock received from a distributor goes on their bill; credit is owed until paid', () async {
+    // setUp received 10 strips at ₹24 on bill SD/101, on credit.
+    await repo.receiveStock(receipt(alprax, batchNumber: 'AX1', packs: 2, mrpPaise: 4000, costPaise: 2500,
+        supplierName: '  shree   distributors ', supplierInvoiceNumber: 'SD/101'));
+    final distributors = await repo.watchDistributors().first;
+    expect(distributors.map((d) => d.name), ['Shree Distributors'], reason: 'one distributor, however it is typed');
+    final bills = await repo.watchSupplierBills().first;
+    expect(bills, hasLength(1));
+    expect(bills.single.itemsPaise, 24000 + 5000);
+    expect(bills.single.isCredit, isTrue);
+    var l = await ledger();
+    expect(l.totalOutstandingPaise, 29000);
+
+    final now = DateTime.now();
+    await repo.saveSupplierPayment(SupplierPayment(
+      id: repo.newId(),
+      storeId: storeId,
+      distributorId: bills.single.distributorId,
+      distributorName: 'Shree Distributors',
+      amountPaise: 10000,
+      via: PaidVia.upi,
+      billNumber: 'SD/101',
+      paidOn: now,
+      createdAt: now,
+      createdBy: owner.uid,
+      createdByName: owner.name,
+    ));
+    l = await ledger();
+    expect(l.totalOutstandingPaise, 19000);
+    expect(l.accounts.values.single.creditBills.single.isPartlyPaid, isTrue);
+
+    // The printed bill total (with the supplier's GST) is typed in: it is what is owed.
+    await repo.saveSupplierBill(bills.single.copyWith(amountPaise: 30450));
+    l = await ledger();
+    expect(l.totalOutstandingPaise, 20450);
+
+    // A cash purchase is paid there and then: nothing owed.
+    await repo.receiveStock(receipt(dolo, batchNumber: 'C1', packs: 1, supplierName: 'Local Medico',
+        supplierInvoiceNumber: '', payment: PurchasePayment.cash));
+    l = await ledger();
+    expect(l.accounts[Distributor.idFor('Local Medico')]!.outstandingPaise, 0);
+    expect(l.accounts[Distributor.idFor('Local Medico')]!.cashBilledPaise, 2400);
+  });
+
+  test('an old bill can be entered as opening dues, edited and removed (never deleted)', () async {
+    final now = DateTime.now();
+    final id = Distributor.idFor('Mahaveer Agencies');
+    final old = SupplierBill(
+      id: SupplierBill.idFor(id, 'MA-77', now),
+      storeId: storeId,
+      distributorId: id,
+      distributorName: 'Mahaveer Agencies',
+      billNumber: 'MA-77',
+      billDate: DateTime(now.year, now.month, now.day).subtract(const Duration(days: 45)),
+      amountPaise: 1250000,
+      payment: PurchasePayment.credit,
+      isOpening: true,
+      createdAt: now,
+      createdBy: owner.uid,
+      createdByName: owner.name,
+    );
+    await expectLater(as(counter).saveSupplierBill(old), throwsA(isA<NotPermittedException>()));
+    final asOwner = as(owner);
+    await asOwner.saveSupplierBill(old);
+    var l = await ledger();
+    expect(l.accounts[id]!.outstandingPaise, 1250000);
+    expect(l.remindersAt(now).map((r) => r.bill.bill.billNumber), contains('MA-77'), reason: '45 days old: overdue');
+
+    await asOwner.saveSupplierBill(old.copyWith(amountPaise: 1200000));
+    l = await ledger();
+    expect(l.accounts[id]!.outstandingPaise, 1200000);
+    await asOwner.saveSupplierBill(old.copyWith(cancelled: true));
+    l = await ledger();
+    expect(l.accounts[id]!.outstandingPaise, 0);
+    expect((await asOwner.watchSupplierBills().first).where((b) => b.id == old.id), hasLength(1),
+        reason: 'kept on record');
+    await expectLater(
+      asOwner.saveSupplierBill(old.copyWith(amountPaise: 0, cancelled: false)),
+      throwsA(isA<OperationException>()),
+    );
   });
 
   test('blocked batches cannot be sold until unblocked', () async {

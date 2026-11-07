@@ -18,3 +18,23 @@ Uint8List? _compress((Uint8List, int) args) {
   }
   return null;
 }
+
+/// Makes a logo, signature or seal picture small enough to keep with the
+/// store (under [maxBytes]), keeping transparency where possible.
+Future<Uint8List?> compressStamp(Uint8List bytes, {int maxBytes = 150 * 1024}) =>
+    compute(_stamp, (bytes, maxBytes));
+
+Uint8List? _stamp((Uint8List, int) args) {
+  final (bytes, maxBytes) = args;
+  final decoded = img.decodeImage(bytes);
+  if (decoded == null) return null;
+  final oriented = img.bakeOrientation(decoded);
+  for (final width in const [600, 450, 320]) {
+    final resized = oriented.width > width ? img.copyResize(oriented, width: width) : oriented;
+    final png = img.encodePng(resized, level: 9);
+    if (png.length <= maxBytes) return Uint8List.fromList(png);
+  }
+  final small = oriented.width > 450 ? img.copyResize(oriented, width: 450) : oriented;
+  final jpg = img.encodeJpg(small, quality: 80);
+  return jpg.length <= maxBytes ? Uint8List.fromList(jpg) : null;
+}

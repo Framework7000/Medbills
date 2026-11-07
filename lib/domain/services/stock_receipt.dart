@@ -1,5 +1,6 @@
 import '../models/batch.dart';
 import '../models/medicine.dart';
+import '../models/supplier_account.dart';
 
 /// A supplier delivery of one batch of one medicine.
 class StockReceipt {
@@ -9,13 +10,19 @@ class StockReceipt {
   final String batchNumber;
   final int expiryMonth;
   final int expiryYear;
-  final int packs; // paid packs
-  final int freePacks; // scheme / free packs
+  final num packs; // paid packs (4.5 = four and a half strips)
+  final num freePacks; // scheme / free packs
   final int purchasePricePaise; // per pack
   final int mrpPaise; // per pack
   final String supplierName;
   final String supplierInvoiceNumber;
   final String? billScanId; // the photographed bill this came from
+  /// Cash (paid now) or credit (owed to the supplier).
+  final PurchasePayment payment;
+  /// The date printed on the supplier's bill; null = today.
+  final DateTime? billDate;
+  /// The bill's printed grand total, when known (scanned bills).
+  final int? billTotalPaise;
 
   const StockReceipt({
     required this.medicine,
@@ -29,12 +36,61 @@ class StockReceipt {
     this.supplierName = '',
     this.supplierInvoiceNumber = '',
     this.billScanId,
+    this.payment = PurchasePayment.credit,
+    this.billDate,
+    this.billTotalPaise,
   });
+
+  String get distributorName => Distributor.tidyName(supplierName);
+  String get distributorId => Distributor.idFor(supplierName);
+
+  String supplierBillId(DateTime now) =>
+      SupplierBill.idFor(distributorId, supplierInvoiceNumber.trim(), billDate ?? now);
+
+  /// The supplier bill once this delivery is added to it (created if new),
+  /// or null when no supplier was named.
+  SupplierBill? billAfter(
+    SupplierBill? existing, {
+    required String storeId,
+    required String uid,
+    required String userName,
+    required DateTime now,
+  }) {
+    if (distributorId.isEmpty) return null;
+    final base = existing ??
+        SupplierBill(
+          id: supplierBillId(now),
+          storeId: storeId,
+          distributorId: distributorId,
+          distributorName: distributorName,
+          billNumber: supplierInvoiceNumber.trim(),
+          billDate: billDate ?? DateTime(now.year, now.month, now.day),
+          payment: payment,
+          createdAt: now,
+          createdBy: uid,
+          createdByName: userName,
+        );
+    return base.copyWith(
+      itemsPaise: base.itemsPaise + costPaise,
+      payment: payment,
+      amountPaise: billTotalPaise,
+      cancelled: false,
+    );
+  }
 
   String get normalisedBatchNumber => Batch.normaliseBatchNumber(batchNumber);
   DateTime get expiryDate => Batch.endOfMonth(expiryYear, expiryMonth);
-  int get totalUnits => (packs + freePacks) * medicine.unitsPerPack;
-  int get freeUnits => freePacks * medicine.unitsPerPack;
+  int get paidUnits => (packs * medicine.unitsPerPack).round();
+  int get freeUnits => (freePacks * medicine.unitsPerPack).round();
+  int get totalUnits => paidUnits + freeUnits;
+
+  /// What the paid units cost at the purchase rate.
+  int get costPaise {
+    final perPack = medicine.unitsPerPack < 1 ? 1 : medicine.unitsPerPack;
+    return (purchasePricePaise * paidUnits * 2 + perPack) ~/ (perPack * 2);
+  }
+
+  static bool _whole(num packs, int perPack) => ((packs * perPack) - (packs * perPack).round()).abs() < 1e-6;
   String get batchId => Batch.idFor(medicine.id, batchNumber);
 
   /// Returns every problem with this entry; empty means it can be saved.
@@ -49,8 +105,15 @@ class StockReceipt {
     } else if (!expiryDate.isAfter(now)) {
       problems.add('This batch has already expired — do not stock it.');
     }
-    if (packs <= 0) problems.add('Paid quantity must be at least 1 pack.');
+    if (packs <= 0 || paidUnits <= 0) problems.add('Paid quantity must be more than zero.');
     if (freePacks < 0) problems.add('Free quantity cannot be negative.');
+    final perPack = medicine.unitsPerPack < 1 ? 1 : medicine.unitsPerPack;
+    if (!_whole(packs, perPack)) {
+      problems.add('$packs packs of $perPack is not a whole number of units. Check the paid quantity.');
+    }
+    if (!_whole(freePacks, perPack)) {
+      problems.add('$freePacks free packs of $perPack is not a whole number of units. Check the free quantity.');
+    }
     if (mrpPaise <= 0) problems.add('Enter the MRP printed on the pack.');
     if (purchasePricePaise <= 0) problems.add('Enter the purchase rate per pack.');
     if (purchasePricePaise > mrpPaise && mrpPaise > 0) {

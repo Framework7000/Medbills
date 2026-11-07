@@ -13,7 +13,8 @@ import '../scan/barcode_scanner_screen.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
-const gstRates = [0.0, 5.0, 12.0, 18.0];
+/// GST slabs since 22-09-2025 (12% was removed; medicines moved to 5%).
+const gstRates = [0.0, 5.0, 18.0];
 
 /// Create or edit a medicine master record. With [save] false the edited
 /// record is just returned (used by Purchases before the first stock-in).
@@ -47,7 +48,7 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
       text: '${(widget.initial.minStock / (widget.initial.unitsPerPack < 1 ? 1 : widget.initial.unitsPerPack)).ceil()}');
   late final _shelf = TextEditingController(text: widget.initial.shelfLocation);
   late final _barcode = TextEditingController(text: widget.initial.barcode ?? '');
-  late double _gst = gstRates.contains(widget.initial.gstRate) ? widget.initial.gstRate : 5.0;
+  late double _gst = gstRates.contains(widget.initial.gstRate) || widget.initial.gstRate == 12.0 ? widget.initial.gstRate : 5.0;
   late ScheduleType _schedule = widget.initial.scheduleType;
   bool _busy = false;
 
@@ -98,11 +99,13 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
     Widget row(List<Widget> children) => LayoutBuilder(builder: (context, c) {
           if (c.maxWidth < 360) {
             return Column(children: [
-              for (final child in children) Padding(padding: const EdgeInsets.only(bottom: Space.m), child: child),
+              for (final child in children) Padding(padding: const EdgeInsets.only(bottom: Space.l), child: child),
             ]);
           }
+          // Room below each row for an error line, so it never runs into
+          // the next row's label.
           return Padding(
-            padding: const EdgeInsets.only(bottom: Space.m),
+            padding: const EdgeInsets.only(bottom: Space.l),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               for (var i = 0; i < children.length; i++) ...[
                 if (i > 0) const SizedBox(width: Space.m),
@@ -142,7 +145,7 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
               ),
               TextFormField(
                 controller: _units,
-                decoration: const InputDecoration(labelText: 'Units per pack', helperText: 'Tablets in a strip; 1 for bottles'),
+                decoration: const InputDecoration(labelText: 'Units per pack', hintText: '15 tablets; 1 for a bottle'),
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 validator: (v) => (int.tryParse(v ?? '') ?? 0) < 1 ? 'At least 1' : null,
@@ -164,7 +167,11 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
                 initialValue: _gst,
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'GST rate'),
-                items: [for (final r in gstRates) DropdownMenuItem(value: r, child: Text('${r.toStringAsFixed(0)}%'))],
+                items: [
+                  for (final r in gstRates) DropdownMenuItem(value: r, child: Text('${r.toStringAsFixed(0)}%')),
+                  // An older medicine still at 12% shows it, to be changed.
+                  if (!gstRates.contains(_gst)) DropdownMenuItem(value: _gst, child: Text('${_gst.toStringAsFixed(0)}% (old, change it)')),
+                ],
                 onChanged: (v) => setState(() => _gst = v ?? 5.0),
               ),
             ]),
@@ -192,7 +199,7 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
                 controller: _barcode,
                 decoration: InputDecoration(
                   labelText: 'Barcode (EAN/GTIN)',
-                  helperText: 'Scan the pack to fill',
+                  hintText: 'Scan the pack to fill',
                   suffixIcon: DeviceFeatures.cameraScanning
                       ? IconButton(
                           tooltip: 'Scan with camera',

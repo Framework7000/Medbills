@@ -49,3 +49,46 @@ class StockSummary {
     };
   }
 }
+
+/// What the stock on the shelves is worth, in paise.
+class InventoryValue {
+  final int costPaise; // at purchase rate — the money tied up in stock
+  final int mrpPaise; // at MRP — what it sells for
+  final int expiredCostPaise; // expired stock, at purchase rate (not counted above)
+  final int batches; // batches with stock
+
+  const InventoryValue({
+    required this.costPaise,
+    required this.mrpPaise,
+    required this.expiredCostPaise,
+    required this.batches,
+  });
+
+  int get marginPaise => mrpPaise - costPaise;
+
+  static int _value(int perPackPaise, int units, int unitsPerPack) {
+    final perPack = unitsPerPack < 1 ? 1 : unitsPerPack;
+    return (perPackPaise * units * 2 + perPack) ~/ (perPack * 2);
+  }
+
+  /// Every batch with stock, at its own rate and MRP. Expired stock is kept
+  /// apart because it can't be sold; blocked stock still counts (it is
+  /// held, not gone).
+  static InventoryValue of(Iterable<StockSummary> stock) {
+    var cost = 0, mrp = 0, expired = 0, count = 0;
+    for (final s in stock) {
+      for (final b in s.batches) {
+        if (b.quantity <= 0) continue;
+        count++;
+        final c = _value(b.purchasePricePaise, b.quantity, s.medicine.unitsPerPack);
+        if (b.isExpiredAt(s.asOf)) {
+          expired += c;
+        } else {
+          cost += c;
+          mrp += _value(b.mrpPaise, b.quantity, s.medicine.unitsPerPack);
+        }
+      }
+    }
+    return InventoryValue(costPaise: cost, mrpPaise: mrp, expiredCostPaise: expired, batches: count);
+  }
+}

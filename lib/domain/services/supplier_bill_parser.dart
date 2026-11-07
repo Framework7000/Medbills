@@ -93,8 +93,26 @@ class SupplierBillParser {
 
   static BillDraftLine? _parseItemRow(String row, Iterable<Medicine> medicines) {
     final clean = row.replaceAllMapped(RegExp(r'(\d),(\d{3})'), (m) => '${m[1]}${m[2]}');
-    final expiryMatch = RegExp(monthYearPattern).firstMatch(clean);
-    final expiry = expiryMatch == null ? null : parseMonthYear(expiryMatch.group(0)!);
+    // A row may carry both the manufacturing and the expiry month (MFG 01/25
+    // EXP 12/27). The expiry is the one labelled EXP, else the later one —
+    // a medicine always expires after it was made.
+    final dateMatches = [
+      for (final m in RegExp(monthYearPattern).allMatches(clean))
+        if (parseMonthYear(m.group(0)!) != null) m,
+    ];
+    ({int month, int year})? expiry;
+    for (final m in dateMatches) {
+      final d = parseMonthYear(m.group(0)!)!;
+      final label = clean.substring((m.start - 8).clamp(0, m.start), m.start);
+      final isExp = label.contains('EXP') || label.contains('EX.') || label.contains('EXPIRY');
+      final isMfg = label.contains('MFG') || label.contains('MFD') || label.contains('MANUF');
+      if (isMfg && dateMatches.length > 1) continue;
+      if (isExp || expiry == null || d.year * 12 + d.month > expiry.year * 12 + expiry.month) {
+        expiry = d;
+        if (isExp) break;
+      }
+    }
+    final firstDate = dateMatches.isEmpty ? null : dateMatches.first;
     final match = MedicineMatcher.match(clean, medicines);
     // A weak/ambiguous match is still useful for finding the batch number and
     // as a starting guess, but auto-filling it as THE medicine when the
@@ -104,7 +122,7 @@ class SupplierBillParser {
     final guess = match.best?.medicine;
     final medicine = match.isConfident ? guess : null;
 
-    final before = expiryMatch == null ? clean : clean.substring(0, expiryMatch.start);
+    final before = firstDate == null ? clean : clean.substring(0, firstDate.start);
 
     final nameTokens = guess == null ? <String>{} : normaliseOcr(guess.name).split(' ').toSet();
     final beforeTokens = before.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
@@ -136,10 +154,12 @@ class SupplierBillParser {
     // whole row when no batch was found at all.
     final batchEnd = batch.isEmpty ? -1 : clean.indexOf(batch) + batch.length;
     var numberSource = batchEnd >= 0 ? clean.substring(batchEnd) : clean;
-    if (expiryMatch != null) {
+    // Blank out every date (expiry and manufacturing) so neither is read
+    // as a quantity or a price.
+    for (final m in dateMatches) {
       final offset = batchEnd >= 0 ? batchEnd : 0;
-      final localStart = (expiryMatch.start - offset).clamp(0, numberSource.length);
-      final localEnd = (expiryMatch.end - offset).clamp(0, numberSource.length);
+      final localStart = (m.start - offset).clamp(0, numberSource.length);
+      final localEnd = (m.end - offset).clamp(0, numberSource.length);
       if (localEnd > localStart) {
         numberSource = numberSource.replaceRange(localStart, localEnd, ' ' * (localEnd - localStart));
       }
@@ -148,6 +168,8 @@ class SupplierBillParser {
         .allMatches(numberSource)
         .where((m) => m.group(2)!.isEmpty)
         .map((m) => m.group(1)!)
+        // An HSN code (3004, 300490, 30049099) is not a quantity or price.
+        .where((n) => !_hsn.hasMatch(n))
         .toList();
 
     // An item row needs a medicine guess (confident or not — the pharmacist
@@ -161,6 +183,9 @@ class SupplierBillParser {
     if (!numbers[0].contains('.') || numbers[0].endsWith('.00')) {
       qty = double.parse(numbers[0]).round();
       index = 1;
+      // No shop orders thousands of packs on one line: that number is
+      // something else (a code, an amount) — leave the quantity to fill in.
+      if (qty > maxPacksPerLine) qty = 0;
       if (numbers.length > 1 && !numbers[1].contains('.')) {
         final f = int.parse(numbers[1]);
         if (f <= qty) {
@@ -186,8 +211,21 @@ class SupplierBillParser {
     );
   }
 
+  /// HSN headings medicines are billed under (3004 medicaments, 3005
+  /// dressings, 3006 pharmacy goods, 3304/3401 cosmetics and soaps, 9018
+  /// instruments, 2106/2936 supplements), as 4, 6 or 8 digits.
+  static final _hsn = RegExp(r'^(?:3001|3002|3003|3004|3005|3006|3304|3401|9018|9021|2106|2936)(?:\d{2}){0,2}$');
+
+  /// Above this a "quantity" is taken to be a misread.
+  static const maxPacksPerLine = 999;
+
+  /// Labels read with their number ("NO-22", "SR.12", "HSN-3004") are not
+  /// batch numbers.
+  static final _labelToken = RegExp(r'^(?:NO|SR|SL|SNO|PG|PAGE|DT|DATE|HSN|GST|INV|BILL|PH|MOB|DL|FSSAI|EXP|MFG|QTY|PCS|CGST|SGST|IGST)[\-/.]?\d');
+
   static bool _looksLikeBatch(String t) {
     if (t.length < 3 || t.length > 15) return false;
+    if (_labelToken.hasMatch(t)) return false;
     if (!RegExp(r'^[A-Z0-9][A-Z0-9\-/]*$').hasMatch(t)) return false;
     if (!RegExp(r'\d').hasMatch(t)) return false;
     if (RegExp(r"^\d+'?S$|^\d+[X*]\d+$|^\d+(ML|GM|G|MG|MCG|KG|L|TAB|TABS|CAP|CAPS)$").hasMatch(t)) return false;

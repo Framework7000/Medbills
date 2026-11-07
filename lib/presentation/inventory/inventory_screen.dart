@@ -14,6 +14,7 @@ import '../theme.dart';
 import '../widgets/common.dart';
 import 'batch_edit_dialog.dart';
 import 'medicine_edit_dialog.dart';
+import 'stock_adjust_dialog.dart';
 
 enum _Filter {
   all('All'),
@@ -27,13 +28,13 @@ enum _Filter {
   final String label;
 
   bool matches(StockSummary s) => switch (this) {
-        _Filter.all => true,
-        _Filter.low => s.isLowStock,
-        _Filter.out => s.isOutOfStock,
-        _Filter.expiring => s.hasExpiringSoon,
-        _Filter.expired => s.hasExpiredStock,
-        _Filter.unclassified => !s.medicine.scheduleType.isSellable,
-      };
+    _Filter.all => true,
+    _Filter.low => s.isLowStock,
+    _Filter.out => s.isOutOfStock,
+    _Filter.expiring => s.hasExpiringSoon,
+    _Filter.expired => s.hasExpiredStock,
+    _Filter.unclassified => !s.medicine.scheduleType.isSellable,
+  };
 }
 
 class InventoryScreen extends ConsumerStatefulWidget {
@@ -63,61 +64,114 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         builder: (index) {
           final q = _query.text.trim().toLowerCase();
           final all = index.values.toList();
-          final shown = all
-              .where(_filter.matches)
-              .where((s) =>
-                  q.isEmpty ||
-                  s.medicine.name.toLowerCase().contains(q) ||
-                  s.medicine.genericName.toLowerCase().contains(q) ||
-                  s.medicine.manufacturer.toLowerCase().contains(q) ||
-                  s.medicine.shelfLocation.toLowerCase() == q)
-              .toList()
-            ..sort((a, b) => a.medicine.name.toLowerCase().compareTo(b.medicine.name.toLowerCase()));
+          final shown =
+              all
+                  .where(_filter.matches)
+                  .where(
+                    (s) =>
+                        q.isEmpty ||
+                        s.medicine.name.toLowerCase().contains(q) ||
+                        s.medicine.genericName.toLowerCase().contains(q) ||
+                        s.medicine.manufacturer.toLowerCase().contains(q) ||
+                        s.medicine.shelfLocation.toLowerCase() == q,
+                  )
+                  .toList()
+                ..sort((a, b) => a.medicine.name.toLowerCase().compareTo(b.medicine.name.toLowerCase()));
           int count(_Filter f) => all.where(f.matches).length;
 
-          return Column(children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(Space.l, Space.l, Space.l, 0),
-              child: TextField(
-                controller: _query,
-                decoration: const InputDecoration(hintText: 'Search name, generic, manufacturer or shelf', prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass)),
-                onChanged: (_) => setState(() {}),
+          final manager = ref.watch(currentUserProvider)?.role.canManageStock ?? false;
+          return Column(
+            children: [
+              if (manager) _StockValueBar(value: InventoryValue.of(all)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(Space.l, Space.l, Space.l, 0),
+                child: TextField(
+                  controller: _query,
+                  decoration: const InputDecoration(
+                    hintText: 'Search name, generic, manufacturer or shelf',
+                    prefixIcon: Icon(PhosphorIconsRegular.magnifyingGlass),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
               ),
-            ),
-            SizedBox(
-              height: 56,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: Space.l, vertical: Space.s),
-                children: [
-                  for (final f in _Filter.values)
-                    Padding(
-                      padding: const EdgeInsets.only(right: Space.s),
-                      child: ChoiceChip(
-                        label: Text('${f.label} (${count(f)})'),
-                        selected: _filter == f,
-                        onSelected: (_) => setState(() => _filter = f),
+              SizedBox(
+                height: 56,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: Space.l, vertical: Space.s),
+                  children: [
+                    for (final f in _Filter.values)
+                      Padding(
+                        padding: const EdgeInsets.only(right: Space.s),
+                        child: ChoiceChip(
+                          label: Text('${f.label} (${count(f)})'),
+                          selected: _filter == f,
+                          onSelected: (_) => setState(() => _filter = f),
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const Divider(),
-            Expanded(
-              child: shown.isEmpty
-                  ? EmptyState(
-                      icon: PhosphorIconsRegular.package,
-                      title: all.isEmpty ? 'No medicines in stock yet' : 'Nothing here',
-                      message: all.isEmpty ? 'Owners and pharmacists receive stock from Purchases.' : null,
-                    )
-                  : ListView.separated(
-                      itemCount: shown.length,
-                      separatorBuilder: (_, _) => const Divider(indent: Space.l, endIndent: Space.l),
-                      itemBuilder: (context, i) => _StockTile(stock: shown[i]),
-                    ),
-            ),
-          ]);
+              const Divider(),
+              Expanded(
+                child: shown.isEmpty
+                    ? EmptyState(
+                        icon: PhosphorIconsRegular.package,
+                        title: all.isEmpty ? 'No medicines in stock yet' : 'Nothing here',
+                        message: all.isEmpty ? 'Owners and pharmacists receive stock from Purchases.' : null,
+                      )
+                    : ListView.separated(
+                        itemCount: shown.length,
+                        separatorBuilder: (_, _) => const Divider(indent: Space.l, endIndent: Space.l),
+                        itemBuilder: (context, i) => _StockTile(stock: shown[i]),
+                      ),
+              ),
+            ],
+          );
         },
+      ),
+    );
+  }
+}
+
+/// How much money is sitting on the shelves, at cost and at MRP.
+class _StockValueBar extends StatelessWidget {
+  const _StockValueBar({required this.value});
+  final InventoryValue value;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    Widget tile(String label, String amount, {Color? color}) => Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: text.labelMedium?.copyWith(color: AppColors.muted)),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              amount,
+              style: text.titleLarge?.copyWith(color: color, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+    return Container(
+      key: const ValueKey('stock-value'),
+      margin: const EdgeInsets.fromLTRB(Space.l, Space.l, Space.l, 0),
+      padding: const EdgeInsets.all(Space.m),
+      decoration: BoxDecoration(color: AppColors.primaryContainer, borderRadius: BorderRadius.circular(12)),
+      child: Row(
+        children: [
+          const Icon(PhosphorIconsRegular.coins, color: AppColors.primary, size: 28),
+          const SizedBox(width: Space.m),
+          tile('Stock value (cost)', formatRupees(value.costPaise), color: AppColors.primary),
+          tile('At MRP', formatRupees(value.mrpPaise)),
+          if (value.expiredCostPaise > 0)
+            tile('Expired', formatRupees(value.expiredCostPaise), color: AppColors.danger),
+        ],
       ),
     );
   }
@@ -133,29 +187,50 @@ class _StockTile extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final next = stock.nextBatch;
     return ListTile(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => MedicineDetailScreen(medicineId: m.id)),
+      onTap: () =>
+          Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => MedicineDetailScreen(medicineId: m.id))),
+      title: Row(
+        children: [
+          Flexible(child: Text(m.name, overflow: TextOverflow.ellipsis)),
+          const SizedBox(width: Space.s),
+          ScheduleBadge(m.scheduleType),
+        ],
       ),
-      title: Row(children: [
-        Flexible(child: Text(m.name, overflow: TextOverflow.ellipsis)),
-        const SizedBox(width: Space.s),
-        ScheduleBadge(m.scheduleType),
-      ]),
-      subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('${m.manufacturer} · ${m.packSizeLabel}${m.shelfLocation.isEmpty ? '' : ' · ${m.shelfLocation}'}',
-            maxLines: 1, overflow: TextOverflow.ellipsis),
-        const SizedBox(height: Space.xs),
-        StockFlags(stock),
-      ]),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${m.manufacturer} · ${m.packSizeLabel}${m.shelfLocation.isEmpty ? '' : ' · ${m.shelfLocation}'}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: Space.xs),
+          StockFlags(stock),
+        ],
+      ),
       trailing: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 140),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text(PackUnits.describe(stock.sellableUnits, m.unitsPerPack),
-              maxLines: 1, overflow: TextOverflow.ellipsis, style: text.titleSmall),
-          if (next != null)
-            Text('Exp ${DateFormat('MM/yy').format(next.expiryDate)}',
-                style: text.bodySmall?.copyWith(color: next.daysToExpiry(stock.asOf) <= StockSummary.expiringSoonDays ? AppColors.warning : AppColors.muted)),
-        ]),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              PackUnits.describe(stock.sellableUnits, m.unitsPerPack),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: text.titleSmall,
+            ),
+            if (next != null)
+              Text(
+                'Exp ${DateFormat('MM/yy').format(next.expiryDate)}',
+                style: text.bodySmall?.copyWith(
+                  color: next.daysToExpiry(stock.asOf) <= StockSummary.expiringSoonDays
+                      ? AppColors.warning
+                      : AppColors.muted,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -172,7 +247,10 @@ class MedicineDetailScreen extends ConsumerWidget {
     final manager = user?.role.canManageStock ?? false;
     final text = Theme.of(context).textTheme;
     if (stock == null) {
-      return Scaffold(appBar: AppBar(), body: const Center(child: CircularProgressIndicator()));
+      return Scaffold(
+        appBar: AppBar(),
+        body: const Center(child: CircularProgressIndicator()),
+      );
     }
     final m = stock.medicine;
     String rate(double r) => r.toStringAsFixed(0);
@@ -196,30 +274,36 @@ class MedicineDetailScreen extends ConsumerWidget {
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(Space.l),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Wrap(spacing: Space.s, runSpacing: Space.xs, children: [
-                    ScheduleBadge(m.scheduleType),
-                    StockFlags(stock),
-                  ]),
-                  const SizedBox(height: Space.s),
-                  Text(m.genericName, style: text.bodyLarge),
-                  Text('${m.manufacturer} · ${m.type}', style: text.bodyMedium?.copyWith(color: AppColors.muted)),
-                  const Divider(height: Space.xl),
-                  AmountRow('Pack', '${m.packSizeLabel} (${m.unitsPerPack} unit${m.unitsPerPack == 1 ? '' : 's'})'),
-                  AmountRow('Schedule', m.scheduleType.label),
-                  AmountRow('GST / HSN', '${rate(m.gstRate)}% / ${m.hsnCode}'),
-                  AmountRow('Sellable stock', PackUnits.describe(stock.sellableUnits, m.unitsPerPack)),
-                  AmountRow('Reorder below', PackUnits.describe(m.minStock, m.unitsPerPack)),
-                  if (m.shelfLocation.isNotEmpty) AmountRow('Shelf', m.shelfLocation),
-                  if ((m.barcode ?? '').isNotEmpty) AmountRow('Barcode', m.barcode!),
-                ]),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: Space.s,
+                      runSpacing: Space.xs,
+                      children: [ScheduleBadge(m.scheduleType), StockFlags(stock)],
+                    ),
+                    const SizedBox(height: Space.s),
+                    Text(m.genericName, style: text.bodyLarge),
+                    Text('${m.manufacturer} · ${m.type}', style: text.bodyMedium?.copyWith(color: AppColors.muted)),
+                    const Divider(height: Space.xl),
+                    AmountRow('Pack', '${m.packSizeLabel} (${m.unitsPerPack} unit${m.unitsPerPack == 1 ? '' : 's'})'),
+                    AmountRow('Schedule', m.scheduleType.label),
+                    AmountRow('GST / HSN', '${rate(m.gstRate)}% / ${m.hsnCode}'),
+                    AmountRow('Sellable stock', PackUnits.describe(stock.sellableUnits, m.unitsPerPack)),
+                    AmountRow('Reorder below', PackUnits.describe(m.minStock, m.unitsPerPack)),
+                    if (m.shelfLocation.isNotEmpty) AmountRow('Shelf', m.shelfLocation),
+                    if ((m.barcode ?? '').isNotEmpty) AmountRow('Barcode', m.barcode!),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: Space.l),
             Text('Batches (nearest expiry first)', style: text.titleMedium),
             const SizedBox(height: Space.s),
             if (stock.batches.isEmpty)
-              const Card(child: Padding(padding: EdgeInsets.all(Space.l), child: Text('No batches received yet.'))),
+              const Card(
+                child: Padding(padding: EdgeInsets.all(Space.l), child: Text('No batches received yet.')),
+              ),
             for (final b in stock.batches) ...[
               _BatchCard(batch: b, unitsPerPack: m.unitsPerPack, asOf: stock.asOf, manager: manager),
               const SizedBox(height: Space.s),
@@ -254,45 +338,59 @@ class _RecentSales extends ConsumerWidget {
     final revenue = rows.fold<int>(0, (sum, r) => sum + r.$2.lineTotalPaise);
     final cost = rows.fold<int>(0, (sum, r) => sum + r.$2.costPaise);
 
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Sales', style: text.titleMedium),
-      const SizedBox(height: Space.s),
-      if (manager)
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(Space.l),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              AmountRow('Units sold', '$units'),
-              AmountRow('Revenue', formatRupees(revenue)),
-              AmountRow('Cost', formatRupees(cost)),
-              AmountRow('Profit', formatRupees(revenue - cost), emphasis: true),
-            ]),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Sales', style: text.titleMedium),
+        const SizedBox(height: Space.s),
+        if (manager)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(Space.l),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AmountRow('Units sold', '$units'),
+                  AmountRow('Revenue', formatRupees(revenue)),
+                  AmountRow('Cost', formatRupees(cost)),
+                  AmountRow('Profit', formatRupees(revenue - cost), emphasis: true),
+                ],
+              ),
+            ),
           ),
-        ),
-      const SizedBox(height: Space.s),
-      if (rows.isEmpty)
-        const Card(child: Padding(padding: EdgeInsets.all(Space.l), child: Text('No sales of this medicine yet.')))
-      else
-        Card(
-          child: Column(children: [
-            for (var i = 0; i < rows.length && i < 20; i++) ...[
-              if (i > 0) const Divider(height: 1, indent: Space.l, endIndent: Space.l),
-              ListTile(
-                onTap: () => showInvoice(context, rows[i].$1),
-                title: Text('${PackUnits.describe(rows[i].$2.quantity, rows[i].$2.unitsPerPack)} · ${rows[i].$1.invoiceNumber}'),
-                subtitle: Text(DateFormat('d MMM yyyy, hh:mm a').format(rows[i].$1.createdAt)),
-                trailing: Text(formatRupees(rows[i].$2.lineTotalPaise), style: text.titleSmall),
-              ),
-            ],
-            if (rows.length > 20)
-              Padding(
-                padding: const EdgeInsets.all(Space.m),
-                child: Text('+ ${rows.length - 20} more — see Bills for the full history.',
-                    style: text.bodySmall?.copyWith(color: AppColors.muted)),
-              ),
-          ]),
-        ),
-    ]);
+        const SizedBox(height: Space.s),
+        if (rows.isEmpty)
+          const Card(
+            child: Padding(padding: EdgeInsets.all(Space.l), child: Text('No sales of this medicine yet.')),
+          )
+        else
+          Card(
+            child: Column(
+              children: [
+                for (var i = 0; i < rows.length && i < 20; i++) ...[
+                  if (i > 0) const Divider(height: 1, indent: Space.l, endIndent: Space.l),
+                  ListTile(
+                    onTap: () => showInvoice(context, rows[i].$1),
+                    title: Text(
+                      '${PackUnits.describe(rows[i].$2.quantity, rows[i].$2.unitsPerPack)} · ${rows[i].$1.invoiceNumber}',
+                    ),
+                    subtitle: Text(DateFormat('d MMM yyyy, hh:mm a').format(rows[i].$1.createdAt)),
+                    trailing: Text(formatRupees(rows[i].$2.lineTotalPaise), style: text.titleSmall),
+                  ),
+                ],
+                if (rows.length > 20)
+                  Padding(
+                    padding: const EdgeInsets.all(Space.m),
+                    child: Text(
+                      '+ ${rows.length - 20} more — see Bills for the full history.',
+                      style: text.bodySmall?.copyWith(color: AppColors.muted),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
   }
 }
 
@@ -308,52 +406,89 @@ class _BatchCard extends ConsumerWidget {
     final text = Theme.of(context).textTheme;
     final expired = batch.isExpiredAt(asOf);
     final days = batch.daysToExpiry(asOf);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(Space.l, Space.m, Space.s, Space.m),
-        child: Row(children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Wrap(spacing: Space.s, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                Text(batch.batchNumber, style: text.titleSmall),
-                if (expired)
-                  const Pill('Expired', foreground: AppColors.danger, background: AppColors.dangerContainer)
-                else if (days <= StockSummary.expiringSoonDays)
-                  Pill('$days days left', foreground: AppColors.warning, background: AppColors.warningContainer),
-                if (batch.isBlocked)
-                  const Pill('Blocked', foreground: AppColors.danger, background: AppColors.dangerContainer),
-              ]),
-              const SizedBox(height: Space.xs),
-              Text(
-                'Received ${DateFormat('d MMM yyyy').format(batch.createdAt)} · Exp ${DateFormat('MMM yyyy').format(batch.expiryDate)}',
-                style: text.bodySmall?.copyWith(color: AppColors.muted),
+    // Double-click (PC) on the batch edits its dates and prices.
+    return DoubleClickArea(
+      onDoubleClick: manager
+          ? () => showDialog<void>(
+              context: context,
+              builder: (_) => BatchEditDialog(batch: batch),
+            )
+          : null,
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Space.l, Space.m, Space.s, Space.m),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: Space.s,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(batch.batchNumber, style: text.titleSmall),
+                        if (expired)
+                          const Pill('Expired', foreground: AppColors.danger, background: AppColors.dangerContainer)
+                        else if (days <= StockSummary.expiringSoonDays)
+                          Pill(
+                            '$days days left',
+                            foreground: AppColors.warning,
+                            background: AppColors.warningContainer,
+                          ),
+                        if (batch.isBlocked)
+                          const Pill('Blocked', foreground: AppColors.danger, background: AppColors.dangerContainer),
+                      ],
+                    ),
+                    const SizedBox(height: Space.xs),
+                    Text(
+                      'Received ${DateFormat('d MMM yyyy').format(batch.createdAt)} · Exp ${DateFormat('MMM yyyy').format(batch.expiryDate)}',
+                      style: text.bodySmall?.copyWith(color: AppColors.muted),
+                    ),
+                    Text(
+                      'MRP ${formatRupees(batch.mrpPaise)}'
+                      '${manager ? ' · cost ${formatRupees(batch.purchasePricePaise)} · margin ${_margin(batch)}' : ''}',
+                      style: text.bodySmall?.copyWith(color: AppColors.muted),
+                    ),
+                    const SizedBox(height: Space.xs),
+                    if (manager)
+                      Tooltip(
+                        message: 'Change stock (count, empty, more or less)',
+                        child: ActionChip(
+                          key: ValueKey('stock-${batch.id}'),
+                          avatar: const Icon(PhosphorIconsRegular.pencilSimple, size: 16),
+                          label: Text(PackUnits.describe(batch.quantity, unitsPerPack), style: text.titleSmall),
+                          onPressed: () => showStockAdjustDialog(context, batch, unitsPerPack),
+                        ),
+                      )
+                    else
+                      Text(PackUnits.describe(batch.quantity, unitsPerPack), style: text.bodyMedium),
+                  ],
+                ),
               ),
-              Text(
-                'MRP ${formatRupees(batch.mrpPaise)}'
-                '${manager ? ' · cost ${formatRupees(batch.purchasePricePaise)} · margin ${_margin(batch)}' : ''}',
-                style: text.bodySmall?.copyWith(color: AppColors.muted),
-              ),
-              Text(PackUnits.describe(batch.quantity, unitsPerPack), style: text.bodyMedium),
-            ]),
+              if (manager)
+                IconButton(
+                  tooltip: 'Edit dates and prices',
+                  icon: const Icon(PhosphorIconsRegular.pencilSimple),
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (_) => BatchEditDialog(batch: batch),
+                  ),
+                ),
+              if (manager)
+                TextButton(
+                  onPressed: () async {
+                    try {
+                      await ref.read(repositoryProvider)!.setBatchBlocked(batch.id, !batch.isBlocked);
+                    } catch (e) {
+                      if (context.mounted) showMessage(context, friendlyError(e), error: true);
+                    }
+                  },
+                  child: Text(batch.isBlocked ? 'Unblock' : 'Block'),
+                ),
+            ],
           ),
-          if (manager)
-            IconButton(
-              tooltip: 'Edit dates and prices',
-              icon: const Icon(PhosphorIconsRegular.pencilSimple),
-              onPressed: () => showDialog<void>(context: context, builder: (_) => BatchEditDialog(batch: batch)),
-            ),
-          if (manager)
-            TextButton(
-              onPressed: () async {
-                try {
-                  await ref.read(repositoryProvider)!.setBatchBlocked(batch.id, !batch.isBlocked);
-                } catch (e) {
-                  if (context.mounted) showMessage(context, friendlyError(e), error: true);
-                }
-              },
-              child: Text(batch.isBlocked ? 'Unblock' : 'Block'),
-            ),
-        ]),
+        ),
       ),
     );
   }

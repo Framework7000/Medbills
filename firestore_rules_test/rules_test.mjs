@@ -287,6 +287,80 @@ await check('someone other than the sender cannot cancel a scan event', () =>
 await check('the sender can cancel their own scan — the 3-second undo — even after the counter marked it done', () =>
   assertSucceeds(updateDoc(doc(counter, `stores/${STORE}/scanEvents/evt-1`), { status: 'cancelled' })));
 
+console.log('\n--- returns (sale stays; returned units + refund recorded) ---');
+await check('a manager records returned units and the refund on a completed sale', () =>
+  assertSucceeds(updateDoc(doc(pharm, `stores/${STORE}/sales/sale-2`), { returnedUnits: [1], refundedPaise: 50 })));
+await check('counterStaff cannot record a return on a sale', () =>
+  assertFails(updateDoc(doc(counter, `stores/${STORE}/sales/sale-2`), { returnedUnits: [2], refundedPaise: 100 })));
+await check('a return cannot change what the sale charged', () =>
+  assertFails(updateDoc(doc(owner, `stores/${STORE}/sales/sale-2`), { returnedUnits: [1], refundedPaise: 50, payablePaise: 1 })));
+await check('a negative refund is refused', () =>
+  assertFails(updateDoc(doc(owner, `stores/${STORE}/sales/sale-2`), { returnedUnits: [1], refundedPaise: -5 })));
+await check('a cancelled sale takes no returns', () =>
+  assertFails(updateDoc(doc(owner, `stores/${STORE}/sales/sale-1`), { returnedUnits: [1], refundedPaise: 50 })));
+const saleReturn = (by) => ({
+  id: 'ret-1', storeId: STORE, saleId: 'sale-1', invoiceNumber: 'INV/2026-27/0001', customerName: 'Walk-in Customer',
+  lines: [], refundMode: 'cash', refundPaise: 50, reason: '', createdAt: Timestamp.now(), createdBy: by, createdByName: 'x',
+});
+await check('a manager can write the return record', () =>
+  assertSucceeds(setDoc(doc(pharm, `stores/${STORE}/saleReturns/ret-1`), saleReturn('pharm-uid'))));
+await check('counterStaff cannot write a return record', () =>
+  assertFails(setDoc(doc(counter, `stores/${STORE}/saleReturns/ret-2`), { ...saleReturn('counter-uid'), id: 'ret-2' })));
+await check('a return record is never edited', () =>
+  assertFails(updateDoc(doc(owner, `stores/${STORE}/saleReturns/ret-1`), { refundPaise: 1 })));
+
+console.log('\n--- distributors, supplier bills, payments ---');
+await check('a manager adds a distributor', () =>
+  assertSucceeds(setDoc(doc(pharm, `stores/${STORE}/distributors/d_shree`), {
+    id: 'd_shree', storeId: STORE, name: 'Shree', phone: '', gstin: '', creditDays: 30, createdAt: Timestamp.now(),
+  })));
+await check('counterStaff cannot add a distributor', () =>
+  assertFails(setDoc(doc(counter, `stores/${STORE}/distributors/d_x`), {
+    id: 'd_x', storeId: STORE, name: 'X', phone: '', gstin: '', creditDays: 30, createdAt: Timestamp.now(),
+  })));
+await check('a manager renames a distributor', () =>
+  assertSucceeds(updateDoc(doc(owner, `stores/${STORE}/distributors/d_shree`), { name: 'Shree Distributors' })));
+const supplierBill = (by) => ({
+  id: 'd_shree__sd101', storeId: STORE, distributorId: 'd_shree', distributorName: 'Shree Distributors',
+  billNumber: 'SD/101', billDate: Timestamp.now(), itemsPaise: 24000, amountPaise: null, payment: 'credit',
+  dueDate: null, isOpening: false, note: '', cancelled: false, createdAt: Timestamp.now(), createdBy: by, createdByName: 'x',
+});
+await check('a manager records a supplier bill', () =>
+  assertSucceeds(setDoc(doc(pharm, `stores/${STORE}/supplierBills/d_shree__sd101`), supplierBill('pharm-uid'))));
+await check('a supplier bill must be recorded as oneself', () =>
+  assertFails(setDoc(doc(pharm, `stores/${STORE}/supplierBills/b2`), { ...supplierBill('owner-uid'), id: 'b2' })));
+await check('counterStaff cannot record a supplier bill', () =>
+  assertFails(setDoc(doc(counter, `stores/${STORE}/supplierBills/b3`), { ...supplierBill('counter-uid'), id: 'b3' })));
+await check('another manager adds received stock to the bill and sets its amount', () =>
+  assertSucceeds(updateDoc(doc(owner, `stores/${STORE}/supplierBills/d_shree__sd101`), {
+    itemsPaise: 29000, amountPaise: 30450, payment: 'credit', cancelled: false,
+  })));
+await check('a supplier bill can be marked removed, never deleted', () =>
+  assertSucceeds(updateDoc(doc(owner, `stores/${STORE}/supplierBills/d_shree__sd101`), { cancelled: true })));
+await check('who recorded a bill cannot be changed', () =>
+  assertFails(updateDoc(doc(owner, `stores/${STORE}/supplierBills/d_shree__sd101`), { createdBy: 'owner-uid' })));
+const payment = (by, amount) => ({
+  id: 'pay-1', storeId: STORE, distributorId: 'd_shree', distributorName: 'Shree Distributors', amountPaise: amount,
+  via: 'upi', billNumber: 'SD/101', paidOn: Timestamp.now(), note: '', cancelled: false,
+  createdAt: Timestamp.now(), createdBy: by, createdByName: 'x',
+});
+await check('a manager records a payment to a distributor', () =>
+  assertSucceeds(setDoc(doc(owner, `stores/${STORE}/supplierPayments/pay-1`), payment('owner-uid', 10000))));
+await check('a payment of zero is refused', () =>
+  assertFails(setDoc(doc(owner, `stores/${STORE}/supplierPayments/pay-2`), { ...payment('owner-uid', 0), id: 'pay-2' })));
+await check('counterStaff cannot record a payment', () =>
+  assertFails(setDoc(doc(counter, `stores/${STORE}/supplierPayments/pay-3`), { ...payment('counter-uid', 100), id: 'pay-3' })));
+await check('a payment can be corrected by a manager', () =>
+  assertSucceeds(updateDoc(doc(pharm, `stores/${STORE}/supplierPayments/pay-1`), { amountPaise: 12000 })));
+await check('counterStaff can read the payments', () =>
+  assertSucceeds(getDoc(doc(counter, `stores/${STORE}/supplierPayments/pay-1`))));
+
+console.log('\n--- stock count ---');
+await check('a manager sets a batch to a counted quantity (more or less)', () =>
+  assertSucceeds(updateDoc(doc(pharm, `stores/${STORE}/batches/batch-1`), { quantity: 345 })));
+await check('counterStaff cannot raise stock', () =>
+  assertFails(updateDoc(doc(counter, `stores/${STORE}/batches/batch-1`), { quantity: 999 })));
+
 console.log('\n--- audit log ---');
 await check('any member can write an audit entry for themselves', () =>
   assertSucceeds(setDoc(doc(pharm, `stores/${STORE}/auditLog/audit-1`), {

@@ -3,14 +3,19 @@ import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../domain/models/purchase_record.dart';
 import '../../domain/models/sale_invoice.dart';
+import '../../domain/models/sale_return.dart';
+import '../../domain/models/supplier_account.dart';
 import '../../domain/services/billing_calculator.dart';
+import '../../domain/services/day_book.dart';
 import '../../domain/services/pack_units.dart';
-import '../../domain/services/profit_loss_service.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../state/providers.dart';
+import '../accounts/supplier_dialogs.dart';
 import '../sales/invoice_view.dart';
 import '../theme.dart';
+import '../widgets/charts.dart';
 import '../widgets/common.dart';
 
 typedef _Range = ({DateTime from, DateTime to});
@@ -22,6 +27,14 @@ final _salesInRangeProvider = FutureProvider.autoDispose.family<List<SaleInvoice
   if (repo == null) return const <SaleInvoice>[];
   ref.watch(recentSalesProvider);
   return repo.salesBetween(range.from, range.to);
+});
+
+/// Customer returns in [from, to), refreshed with the sales.
+final _returnsInRangeProvider = FutureProvider.autoDispose.family<List<SaleReturn>, _Range>((ref, range) {
+  final repo = ref.watch(repositoryProvider);
+  if (repo == null) return const <SaleReturn>[];
+  ref.watch(recentSalesProvider);
+  return repo.returnsBetween(range.from, range.to);
 });
 
 enum _Preset {
@@ -89,12 +102,15 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Reports'),
+        title: const Text('Reports · Profit & Loss'),
         actions: [
           IconButton(
             tooltip: 'Refresh',
             icon: const Icon(PhosphorIconsRegular.arrowClockwise),
-            onPressed: () => ref.invalidate(_salesInRangeProvider(range)),
+            onPressed: () {
+              ref.invalidate(_salesInRangeProvider(range));
+              ref.invalidate(_returnsInRangeProvider(range));
+            },
           ),
         ],
       ),
@@ -121,7 +137,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         Expanded(
           child: AsyncBody<List<SaleInvoice>>(
             value: sales,
-            builder: (list) => _ReportBody(sales: list, rangeLabel: rangeLabel),
+            builder: (list) => _ReportBody(
+              sales: list,
+              returns: ref.watch(_returnsInRangeProvider(range)).valueOrNull ?? const [],
+              range: range,
+              rangeLabel: rangeLabel,
+            ),
           ),
         ),
       ]),
@@ -130,17 +151,25 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 }
 
 class _ReportBody extends ConsumerWidget {
-  const _ReportBody({required this.sales, required this.rangeLabel});
+  const _ReportBody({required this.sales, required this.returns, required this.range, required this.rangeLabel});
   final List<SaleInvoice> sales;
+  final List<SaleReturn> returns;
+  final _Range range;
   final String rangeLabel;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
-    final report = ProfitLossService.calculate(sales);
+    final bills = ref.watch(supplierBillsProvider).valueOrNull ?? const <SupplierBill>[];
+    final payments = ref.watch(supplierPaymentsProvider).valueOrNull ?? const <SupplierPayment>[];
+    final book = DayBook.build(from: range.from, to: range.to, sales: sales, returns: returns, bills: bills, payments: payments);
+    final t = book.total;
     final live = sales.where((s) => !s.isCancelled).toList();
-    final payable = live.fold<int>(0, (s, i) => s + i.payablePaise);
     final roundOff = live.fold<int>(0, (s, i) => s + i.roundOffPaise);
+    final owed = ref.watch(supplierLedgerProvider).valueOrNull?.totalOutstandingPaise;
+    final items = (ref.watch(purchasesProvider).valueOrNull ?? const <PurchaseRecord>[])
+        .where((p) => !p.createdAt.isBefore(range.from) && p.createdAt.isBefore(range.to))
+        .toList();
 
     // GST return figures per slab (taxable value, CGST, SGST).
     final slabs = <double, ({int taxable, int cgst, int sgst})>{};
@@ -184,35 +213,140 @@ class _ReportBody extends ConsumerWidget {
     final expiring = stock.where((s) => s.hasExpiringSoon).length;
     final expired = stock.where((s) => s.hasExpiredStock).length;
 
+    final days = book.byDay.keys.toList()..sort();
+    final perDay = [for (final d in days) book.byDay[d]!];
+    final dayFormat = days.length > 31 ? DateFormat('MMM') : DateFormat('d');
+
     final cards = <Widget>[
       _Section(
-        title: 'Sales · $rangeLabel',
+        title: 'Sales by payment · $rangeLabel',
         children: [
-          AmountRow('Bills', '${report.invoiceCount}'
-              '${report.cancelledCount > 0 ? ' (+${report.cancelledCount} cancelled)' : ''}'),
-          AmountRow('Collected / billed', formatRupees(payable), emphasis: true),
-          AmountRow('MRP value of goods', formatRupees(report.salesPaise)),
-          AmountRow('Round-off', formatRupees(roundOff)),
-          AmountRow('GST included', formatRupees(report.gstPaise)),
-          const Divider(height: Space.l),
-          AmountRow('Purchase cost of goods sold', formatRupees(report.costPaise)),
-          AmountRow(
-            'Gross margin',
-            '${formatRupees(report.grossProfitPaise)} (${report.marginPercent.toStringAsFixed(1)}%)',
-            emphasis: true,
+          DonutChart(
+            centerLabel: 'net sales',
+            slices: [
+              ChartSlice('Cash', t.cashSalesPaise, ChartColors.cash),
+              ChartSlice('UPI', t.upiSalesPaise, ChartColors.upi),
+              ChartSlice('Card', t.cardSalesPaise, ChartColors.card),
+              ChartSlice('Udhaar', t.udhaarSalesPaise, ChartColors.udhaar),
+            ],
           ),
-          Text('MRP value minus purchase rate, both including GST.',
-              style: text.bodySmall?.copyWith(color: AppColors.muted)),
         ],
       ),
       _Section(
-        title: 'By payment mode',
+        title: 'Money in and out',
         children: [
-          if (report.byPaymentMode.isEmpty) const Text('No sales.'),
-          for (final mode in PaymentMode.values)
-            if (report.byPaymentMode[mode] != null)
-              AmountRow(mode == PaymentMode.credit ? 'Udhaar (credit)' : mode.label,
-                  formatRupees(report.byPaymentMode[mode]!)),
+          DonutChart(
+            centerLabel: t.netCashPaise >= 0 ? 'plus' : 'minus',
+            centerValue: '${t.netCashPaise >= 0 ? '+' : '−'}${formatRupees(t.netCashPaise.abs())}',
+            centerColor: t.netCashPaise >= 0 ? AppColors.accent : AppColors.danger,
+            slices: [
+              ChartSlice('Came in', t.cashInPaise, ChartColors.cash),
+              ChartSlice('Paid out', t.paidOutPaise, ChartColors.out),
+            ],
+          ),
+          const SizedBox(height: Space.s),
+          AmountRow('Plus / minus', '${t.netCashPaise >= 0 ? '+' : '−'}${formatRupees(t.netCashPaise.abs())}', emphasis: true),
+        ],
+      ),
+      if (days.length > 1)
+        _Section(
+          title: 'Day by day',
+          children: [
+            GroupedBarChart(
+              labels: [for (final d in days) dayFormat.format(d)],
+              series: [
+                BarSeries('Sales', ChartColors.cash, [for (final f in perDay) f.netSalesPaise]),
+                BarSeries('Profit', ChartColors.upi, [for (final f in perDay) f.grossProfitPaise.clamp(0, 1 << 40)]),
+                BarSeries('Paid out', ChartColors.out, [for (final f in perDay) f.paidOutPaise]),
+              ],
+            ),
+          ],
+        ),
+      // Table 1 — Sales.
+      _Section(
+        title: '1 · Sales',
+        children: [
+          AmountRow('Bills', '${t.bills}${t.cancelledBills > 0 ? ' (+${t.cancelledBills} cancelled)' : ''}'),
+          AmountRow('Sales (after discount)', formatRupees(t.salesPaise)),
+          if (t.discountPaise > 0) AmountRow('Discount given', formatRupees(t.discountPaise)),
+          if (t.refundPaise > 0) AmountRow('Returns (${t.returnsCount})', '−${formatRupees(t.refundPaise)}'),
+          AmountRow('Net sales', formatRupees(t.netSalesPaise), emphasis: true),
+          AmountRow('Cash', formatRupees(t.cashSalesPaise)),
+          AmountRow('UPI', formatRupees(t.upiSalesPaise)),
+          if (t.cardSalesPaise != 0) AmountRow('Card', formatRupees(t.cardSalesPaise)),
+          if (t.udhaarSalesPaise != 0) AmountRow('Udhaar (credit)', formatRupees(t.udhaarSalesPaise)),
+          AmountRow('Round-off', formatRupees(roundOff)),
+          AmountRow('GST included', formatRupees(t.netGstPaise)),
+          const Divider(height: Space.l),
+          AmountRow('Cost of goods sold', formatRupees(t.netCostPaise)),
+          AmountRow(
+            'Gross profit',
+            '${formatRupees(t.grossProfitPaise)} (${t.marginPercent.toStringAsFixed(1)}%)',
+            emphasis: true,
+          ),
+          Text('Net sales minus the purchase rate of what was sold (returns taken out).',
+              style: text.bodySmall?.copyWith(color: AppColors.muted)),
+        ],
+      ),
+      // Table 2 — Purchase & Payment.
+      _Section(
+        title: '2 · Purchase & Payment',
+        children: [
+          AmountRow('Purchases in cash', formatRupees(t.cashPurchasePaise)),
+          AmountRow('Purchases on udhaar', formatRupees(t.creditPurchasePaise)),
+          AmountRow('Total purchases', formatRupees(t.purchasePaise), emphasis: true),
+          AmountRow('Payments of old bills', formatRupees(t.paymentsPaise)),
+          AmountRow('Total paid out', formatRupees(t.paidOutPaise), emphasis: true),
+          if (book.purchases.isNotEmpty) ...[
+            const Divider(height: Space.l),
+            Text('Purchases', style: text.titleSmall),
+            for (final b in book.purchases)
+              _RowLink(
+                onTap: () => showSupplierBillDialog(context, bill: b),
+                title: '${b.distributorName} · ${b.billNumber.isEmpty ? 'no bill no.' : 'bill ${b.billNumber}'}',
+                subtitle: '${DateFormat('d MMM').format(b.billDate)} · ${b.isCredit ? 'Udhaar' : 'Cash'}',
+                amount: b.totalPaise,
+              ),
+          ],
+          if (items.isNotEmpty) ...[
+            const Divider(height: Space.l),
+            Text('What was bought', style: text.titleSmall),
+            for (final p in items.take(60))
+              _RowLink(
+                title: '${p.medicineName} · ${PackUnits.describe(p.quantity, p.unitsPerPack)}',
+                subtitle: '${p.supplierName.isEmpty ? 'No supplier' : p.supplierName}'
+                    '${p.supplierInvoiceNumber.isEmpty ? '' : ' · bill ${p.supplierInvoiceNumber}'} · '
+                    '${DateFormat('d MMM').format(p.createdAt)}',
+                amount: p.totalCostPaise,
+              ),
+            if (items.length > 60)
+              Text('+ ${items.length - 60} more in Purchases', style: text.bodySmall?.copyWith(color: AppColors.muted)),
+          ],
+          if (book.payments.isNotEmpty) ...[
+            const Divider(height: Space.l),
+            Text('Payments', style: text.titleSmall),
+            for (final p in book.payments)
+              _RowLink(
+                onTap: () => showSupplierPaymentDialog(context, payment: p),
+                title: '${p.distributorName}${p.billNumber.isEmpty ? '' : ' · bill ${p.billNumber}'}',
+                subtitle: '${DateFormat('d MMM').format(p.paidOn)} · ${p.via.label}',
+                amount: p.amountPaise,
+              ),
+          ],
+        ],
+      ),
+      // Table 3 — Totals.
+      _Section(
+        title: '3 · Total',
+        children: [
+          AmountRow('Total sales (net)', formatRupees(t.netSalesPaise)),
+          AmountRow('Money came in (cash + UPI + card)', formatRupees(t.cashInPaise)),
+          AmountRow('Total paid (purchases + payments)', formatRupees(t.paidOutPaise)),
+          AmountRow('Plus / minus', '${t.netCashPaise >= 0 ? '+' : '−'}${formatRupees(t.netCashPaise.abs())}', emphasis: true),
+          const Divider(height: Space.l),
+          AmountRow('Gross profit on sales', formatRupees(t.grossProfitPaise), emphasis: true),
+          if (t.udhaarSalesPaise != 0) AmountRow('Udhaar given to customers', formatRupees(t.udhaarSalesPaise)),
+          if (owed != null) AmountRow('Udhaar owed to distributors (now)', formatRupees(owed)),
         ],
       ),
       _Section(
@@ -275,13 +409,56 @@ class _ReportBody extends ConsumerWidget {
       final width = (c.maxWidth - Space.l * (columns + 1)) / columns;
       return SingleChildScrollView(
         padding: const EdgeInsets.all(Space.l),
-        child: Wrap(
-          spacing: Space.l,
-          runSpacing: Space.l,
-          children: [for (final card in cards) SizedBox(width: width, child: card)],
-        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          StatGrid(children: [
+            StatTile(label: 'Net sales', paise: t.netSalesPaise, caption: '${t.bills} bills'),
+            StatTile(
+              label: 'Gross profit',
+              paise: t.grossProfitPaise,
+              color: AppColors.accent,
+              caption: '${t.marginPercent.toStringAsFixed(1)}% margin',
+            ),
+            StatTile(label: 'Paid out', paise: t.paidOutPaise, color: AppColors.warning, caption: 'Cash buys + payments'),
+            StatTile(label: 'Plus / minus', paise: t.netCashPaise, signed: true, caption: 'Came in − paid out'),
+          ]),
+          const SizedBox(height: Space.l),
+          Wrap(
+            spacing: Space.l,
+            runSpacing: Space.l,
+            children: [for (final card in cards) SizedBox(width: width, child: card)],
+          ),
+        ]),
       );
     });
+  }
+}
+
+class _RowLink extends StatelessWidget {
+  const _RowLink({required this.title, required this.subtitle, required this.amount, this.onTap});
+  final String title;
+  final String subtitle;
+  final int amount;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Space.xs),
+        child: Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, style: text.bodyMedium, maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text(subtitle, style: text.bodySmall?.copyWith(color: AppColors.muted)),
+            ]),
+          ),
+          const SizedBox(width: Space.s),
+          Text(formatRupees(amount), style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+        ]),
+      ),
+    );
   }
 }
 

@@ -17,6 +17,7 @@ import '../../domain/services/schedule_h1_compliance.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
 import '../../platform/scan_target_memory.dart';
+import '../../state/cart.dart';
 import '../../state/providers.dart';
 import '../customers/customer_dialogs.dart';
 import '../scan/barcode_scanner_screen.dart';
@@ -25,6 +26,7 @@ import '../scan/scan_flows.dart';
 import '../sales/invoice_view.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'price_dialogs.dart';
 import 'prescription_dialog.dart';
 import 'quantity_dialog.dart';
 
@@ -564,6 +566,11 @@ class _CartList extends ConsumerWidget {
   const _CartList({required this.index});
   final Map<String, StockSummary> index;
 
+  static Future<void> _editPrice(BuildContext context, WidgetRef ref, int i, CartLine line) async {
+    final choice = await showLinePriceDialog(context, line);
+    if (choice != null) ref.read(cartProvider.notifier).setLineRate(i, choice.ratePaise);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cart = ref.watch(cartProvider);
@@ -594,7 +601,9 @@ class _CartList extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(Space.m, Space.s, Space.xs, Space.s),
             child: Row(children: [
               Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                child: DoubleClickArea(
+                  onDoubleClick: () => _editPrice(context, ref, i, line),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(children: [
                     Flexible(child: Text(line.name, style: text.titleSmall, overflow: TextOverflow.ellipsis)),
                     const SizedBox(width: Space.s),
@@ -609,11 +618,34 @@ class _CartList extends ConsumerWidget {
                   if (short)
                     Text(available == 0 ? 'This batch just ran out — remove the line.' : 'Only $available left in this batch.',
                         style: text.bodySmall?.copyWith(color: AppColors.danger)),
-                ]),
+                  ]),
+                ),
               ),
               const SizedBox(width: Space.s),
               Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Text(formatRupees(line.lineTotalPaise), style: text.titleSmall),
+                Tooltip(
+                  message: 'Change price (sell below MRP)',
+                  child: InkWell(
+                    key: ValueKey('price-$i'),
+                    borderRadius: BorderRadius.circular(6),
+                    onTap: () => _editPrice(context, ref, i, line),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: Space.xs, vertical: 2),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        if (line.isDiscounted) ...[
+                          Text(formatRupees(line.mrpLinePaise),
+                              style: text.bodySmall?.copyWith(
+                                  color: AppColors.muted, decoration: TextDecoration.lineThrough)),
+                          const SizedBox(width: Space.xs),
+                        ],
+                        Text(formatRupees(line.lineTotalPaise),
+                            style: text.titleSmall?.copyWith(color: line.isDiscounted ? AppColors.accent : null)),
+                        const SizedBox(width: 2),
+                        const Icon(PhosphorIconsRegular.pencilSimple, size: 14, color: AppColors.muted),
+                      ]),
+                    ),
+                  ),
+                ),
                 Row(mainAxisSize: MainAxisSize.min, children: [
                   IconButton(
                     tooltip: step > 1 ? 'One pack less' : 'One less',
@@ -667,7 +699,15 @@ class _CartList extends ConsumerWidget {
             ]),
           ),
         );
-        return _CartRowAnimator(key: ValueKey(line.batchId), quantity: line.quantity, child: card);
+        // Double-click the name (PC) or long-press the line (phone) to change its price.
+        return _CartRowAnimator(
+          key: ValueKey(line.batchId),
+          quantity: line.quantity,
+          child: GestureDetector(
+            onLongPress: () => _editPrice(context, ref, i, line),
+            child: card,
+          ),
+        );
       },
     );
   }
@@ -852,10 +892,36 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
             ),
         ]),
         const Divider(height: Space.xl * 1.5),
+        AmountRow('MRP total', formatRupees(cart.mrpTotalPaise)),
+        if (cart.mrpTotalPaise > cart.subtotalPaise)
+          AmountRow('Lower prices', '−${formatRupees(cart.mrpTotalPaise - cart.subtotalPaise)}'),
+        InkWell(
+          key: const ValueKey('bill-discount-row'),
+          borderRadius: BorderRadius.circular(6),
+          onTap: cart.isEmpty
+              ? null
+              : () async {
+                  final paise = await showBillDiscountDialog(context,
+                      subtotalPaise: cart.subtotalPaise, currentPaise: cart.appliedBillDiscountPaise);
+                  if (paise != null) notifier.setBillDiscount(paise);
+                },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(children: [
+              const Icon(PhosphorIconsRegular.tag, size: 16, color: AppColors.accent),
+              const SizedBox(width: Space.xs),
+              Expanded(
+                child: Text(cart.appliedBillDiscountPaise > 0 ? 'Discount' : 'Add discount',
+                    style: text.bodyMedium?.copyWith(color: AppColors.accent)),
+              ),
+              Text(cart.appliedBillDiscountPaise > 0 ? '−${formatRupees(cart.appliedBillDiscountPaise)}' : '',
+                  style: text.bodyMedium),
+            ]),
+          ),
+        ),
         for (final slab in summary.slabs)
           AmountRow('GST ${rate(slab.rate)}% (on ${formatRupees(slab.taxablePaise)})', formatRupees(slab.gstPaise)),
         AmountRow('Taxable value', formatRupees(summary.taxablePaise)),
-        AmountRow('Total (MRP)', formatRupees(summary.grossPaise)),
         AmountRow('Round off', formatRupees(summary.roundOffPaise)),
         const Divider(height: Space.l),
         Padding(

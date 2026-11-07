@@ -9,8 +9,11 @@ import '../domain/models/medicine.dart';
 import '../domain/models/purchase_record.dart';
 import '../domain/models/sale_invoice.dart';
 import '../domain/models/scan_link.dart';
+import '../domain/models/sale_return.dart';
 import '../domain/models/store_profile.dart';
+import '../domain/models/supplier_account.dart';
 import '../domain/services/checkout_engine.dart';
+import '../domain/services/stock_adjustment.dart';
 import '../domain/services/stock_receipt.dart';
 
 /// Who is performing an operation — recorded on every write.
@@ -74,7 +77,43 @@ abstract class PharmacyRepository {
 
   /// Records a supplier delivery: creates the medicine if it's new to the
   /// store, creates or tops up the batch, and logs the purchase. Managers only.
-  Future<void> receiveStock(StockReceipt receipt);
+  /// With a supplier name it also adds the cost to that supplier's bill
+  /// (cash or credit) in Purchase & Payment; returns false if only the stock
+  /// could be saved (the bill part was refused, e.g. rules not yet published).
+  Future<bool> receiveStock(StockReceipt receipt);
+
+  /// A customer returning medicines from a bill: puts them back in stock,
+  /// records the refund (cash, UPI, or less udhaar) on today's figures, and
+  /// notes the returned units on the bill. Managers only.
+  Future<SaleReturn> returnSaleItems({
+    required String saleId,
+    required Map<int, int> units,
+    required RefundMode refundMode,
+    String reason = '',
+  });
+
+  Future<List<SaleReturn>> returnsBetween(DateTime from, DateTime to);
+  Stream<List<SaleReturn>> watchReturnsFor(String saleId);
+
+  /// Sets a batch's stock to a counted figure (empty it, more, less), with
+  /// the reason in the audit trail. Managers only.
+  Future<void> adjustBatchStock(String batchId, StockAdjustment adjustment);
+
+  // ---------------------------------------- distributors, purchase & payment
+
+  Stream<List<Distributor>> watchDistributors();
+  Stream<List<SupplierBill>> watchSupplierBills();
+  Stream<List<SupplierPayment>> watchSupplierPayments();
+
+  /// Adds or edits a distributor. Managers only.
+  Future<void> saveDistributor(Distributor distributor);
+
+  /// Adds or edits a supplier bill (also old bills owed from before).
+  /// Never deleted — set [SupplierBill.cancelled]. Managers only.
+  Future<void> saveSupplierBill(SupplierBill bill);
+
+  /// Adds or edits a payment to a distributor or MR. Managers only.
+  Future<void> saveSupplierPayment(SupplierPayment payment);
 
   /// Creates or updates a medicine master record. Managers only.
   Future<void> saveMedicine(Medicine medicine);

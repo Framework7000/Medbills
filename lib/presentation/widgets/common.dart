@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart' show FirebaseException;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -259,4 +260,39 @@ class DialogBody extends StatelessWidget {
       child: SingleChildScrollView(child: child),
     );
   }
+}
+
+/// Opens [onDoubleClick] on a mouse double-click (the PC way to edit), without
+/// slowing down ordinary taps on whatever is inside. Touch is left alone —
+/// on a phone the same edit is a tap or a long-press elsewhere.
+class DoubleClickArea extends StatefulWidget {
+  const DoubleClickArea({super.key, required this.onDoubleClick, required this.child});
+  final VoidCallback? onDoubleClick;
+  final Widget child;
+
+  @override
+  State<DoubleClickArea> createState() => _DoubleClickAreaState();
+}
+
+class _DoubleClickAreaState extends State<DoubleClickArea> {
+  Duration? _lastDown;
+  Offset? _lastAt;
+
+  @override
+  Widget build(BuildContext context) => Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (e) {
+          if (e.kind != PointerDeviceKind.mouse || widget.onDoubleClick == null) return;
+          final last = _lastDown;
+          final at = _lastAt;
+          if (last != null && at != null && e.timeStamp - last < kDoubleTapTimeout && (e.position - at).distance < kDoubleTapSlop) {
+            _lastDown = null;
+            widget.onDoubleClick!();
+          } else {
+            _lastDown = e.timeStamp;
+            _lastAt = e.position;
+          }
+        },
+        child: widget.child,
+      );
 }

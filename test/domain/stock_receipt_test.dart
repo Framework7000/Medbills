@@ -21,7 +21,18 @@ void main() {
     test('rejects missing or impossible values', () {
       final problems = receipt(dolo, batchNumber: ' ', packs: 0, mrpPaise: 0, expiryMonth: 13, expiryYear: 2028)
           .validate(now: now);
-      expect(problems.join(' '), allOf(contains('batch number'), contains('month'), contains('1 pack'), contains('MRP')));
+      expect(problems.join(' '), allOf(contains('batch number'), contains('month'), contains('more than zero'), contains('MRP')));
+    });
+
+    test('half a box is fine when it is a whole number of units', () {
+      final half = receipt(dolo, packs: 4.5, expiryYear: 2028); // Dolo: 15 per strip
+      expect(half.validate(now: now).join(), contains('not a whole number'));
+      final ten = receipt(dolo.copyWith(unitsPerPack: 10), packs: 4.5, freePacks: 0.5, expiryYear: 2028);
+      expect(ten.validate(now: now), isEmpty);
+      expect(ten.paidUnits, 45);
+      expect(ten.freeUnits, 5);
+      expect(ten.totalUnits, 50);
+      expect(ten.costPaise, (ten.purchasePricePaise * 45 * 2 + 10) ~/ 20);
     });
 
     test('rejects already-expired stock and a rate above MRP', () {

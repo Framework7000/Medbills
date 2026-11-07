@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,7 @@ import '../../data/auth_service.dart';
 import '../../domain/models/app_user.dart';
 import '../../domain/models/store_profile.dart';
 import '../../domain/services/master_corrections.dart';
+import '../../platform/photo_compress.dart';
 import '../../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -82,6 +84,14 @@ class SettingsScreen extends ConsumerWidget {
                   ]),
                 ),
               ),
+              if (user.role.canEditStore) ...[
+                const SizedBox(height: Space.l),
+                Text('Bill look: logo, signature, seal', style: text.titleMedium),
+                const SizedBox(height: Space.s),
+                Card(
+                  child: AsyncBody<StoreProfile>(value: store, builder: (p) => _BrandingImages(profile: p)),
+                ),
+              ],
               const SizedBox(height: Space.l),
               Text('Billing', style: text.titleMedium),
               const SizedBox(height: Space.s),
@@ -157,11 +167,111 @@ class SettingsScreen extends ConsumerWidget {
                 style: text.bodySmall?.copyWith(color: AppColors.muted),
               ),
               const SizedBox(height: Space.s),
-              Text('MedBills 1.1.0', style: text.bodySmall?.copyWith(color: AppColors.muted)),
+              Text('MedBills 1.2.0', style: text.bodySmall?.copyWith(color: AppColors.muted)),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Logo, signature and seal pictures printed on every A4 bill.
+class _BrandingImages extends ConsumerStatefulWidget {
+  const _BrandingImages({required this.profile});
+  final StoreProfile profile;
+
+  @override
+  ConsumerState<_BrandingImages> createState() => _BrandingImagesState();
+}
+
+class _BrandingImagesState extends ConsumerState<_BrandingImages> {
+  String? _busy;
+
+  Future<void> _pick(String kind) async {
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (file == null || !mounted) return;
+    setState(() => _busy = kind);
+    try {
+      final small = await compressStamp(await file.readAsBytes());
+      if (small == null) {
+        if (mounted) showMessage(context, 'Could not use that picture. Try a clearer, smaller one.', error: true);
+        return;
+      }
+      final p = widget.profile;
+      await ref.read(repositoryProvider)!.updateStore(switch (kind) {
+        'logo' => p.copyWith(logoImage: small),
+        'signature' => p.copyWith(signatureImage: small),
+        _ => p.copyWith(sealImage: small),
+      });
+    } catch (e) {
+      if (mounted) showMessage(context, friendlyError(e), error: true);
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  Future<void> _remove(String kind) async {
+    final p = widget.profile;
+    try {
+      await ref.read(repositoryProvider)!.updateStore(switch (kind) {
+        'logo' => p.copyWith(clearLogo: true),
+        'signature' => p.copyWith(clearSignature: true),
+        _ => p.copyWith(clearSeal: true),
+      });
+    } catch (e) {
+      if (mounted) showMessage(context, friendlyError(e), error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final p = widget.profile;
+    Widget slot(String kind, String label, Uint8List? bytes) => SizedBox(
+          width: 150,
+          child: Column(children: [
+            Container(
+              height: 90,
+              width: 140,
+              decoration: BoxDecoration(
+                border: Border.all(color: AppColors.border),
+                borderRadius: BorderRadius.circular(8),
+                color: Colors.white,
+              ),
+              alignment: Alignment.center,
+              child: _busy == kind
+                  ? const CircularProgressIndicator()
+                  : bytes == null
+                      ? Icon(PhosphorIconsRegular.image, color: AppColors.muted.withValues(alpha: 0.6), size: 32)
+                      : Padding(padding: const EdgeInsets.all(6), child: Image.memory(bytes, fit: BoxFit.contain)),
+            ),
+            const SizedBox(height: Space.xs),
+            Text(label, style: text.labelLarge),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              TextButton(onPressed: _busy != null ? null : () => _pick(kind), child: Text(bytes == null ? 'Add' : 'Change')),
+              if (bytes != null)
+                IconButton(
+                  tooltip: 'Remove',
+                  icon: const Icon(PhosphorIconsRegular.trash, size: 18, color: AppColors.danger),
+                  onPressed: () => _remove(kind),
+                ),
+            ]),
+          ]),
+        );
+    return Padding(
+      padding: const EdgeInsets.all(Space.m),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Wrap(spacing: Space.m, runSpacing: Space.m, children: [
+          slot('logo', 'Logo', p.logoImage),
+          slot('signature', 'Signature', p.signatureImage),
+          slot('seal', 'Seal (mohar)', p.sealImage),
+        ]),
+        const SizedBox(height: Space.s),
+        Text('Sign on white paper and take a clear photo. Printed at the bottom of every A4 bill, '
+            'above "Authorized Signatory". Bank details and terms: edit store details above.',
+            style: text.bodySmall?.copyWith(color: AppColors.muted)),
+      ]),
     );
   }
 }
@@ -187,13 +297,16 @@ class _StoreDialogState extends ConsumerState<_StoreDialog> {
   late final _phone = TextEditingController(text: widget.profile.phone);
   late final _gstin = TextEditingController(text: widget.profile.gstin);
   late final _dl = TextEditingController(text: widget.profile.drugLicenseNumbers);
+  late final _email = TextEditingController(text: widget.profile.email);
+  late final _bank = TextEditingController(text: widget.profile.bankDetails);
+  late final _terms = TextEditingController(text: widget.profile.terms);
   bool _busy = false;
 
   static final _gstinPattern = RegExp(r'^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$');
 
   @override
   void dispose() {
-    for (final c in [_name, _address, _city, _state, _phone, _gstin, _dl]) {
+    for (final c in [_name, _address, _city, _state, _phone, _gstin, _dl, _email, _bank, _terms]) {
       c.dispose();
     }
     super.dispose();
@@ -211,6 +324,9 @@ class _StoreDialogState extends ConsumerState<_StoreDialog> {
             phone: _phone.text.trim(),
             gstin: _gstin.text.trim().toUpperCase(),
             drugLicenseNumbers: _dl.text.trim(),
+            email: _email.text.trim(),
+            bankDetails: _bank.text.trim(),
+            terms: _terms.text.trim(),
           ));
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -265,6 +381,29 @@ class _StoreDialogState extends ConsumerState<_StoreDialog> {
             TextFormField(
               controller: _dl,
               decoration: const InputDecoration(labelText: 'Drug licence numbers', hintText: '20B/…, 21B/…'),
+            ),
+            gap,
+            TextFormField(
+              controller: _email,
+              decoration: const InputDecoration(labelText: 'Email (on the bill)'),
+              keyboardType: TextInputType.emailAddress,
+            ),
+            gap,
+            TextFormField(
+              controller: _bank,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Bank details (on the bill)',
+                hintText: 'Bank name, A/c no., IFSC, A/c holder',
+              ),
+            ),
+            gap,
+            TextFormField(
+              controller: _terms,
+              minLines: 1,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: 'Terms and conditions'),
             ),
           ]),
         ),

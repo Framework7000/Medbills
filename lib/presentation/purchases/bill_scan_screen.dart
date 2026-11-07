@@ -9,17 +9,19 @@ import 'package:intl/intl.dart';
 import '../../domain/services/scanned_code.dart';
 import '../../domain/models/batch.dart';
 import '../../domain/models/bill_scan.dart';
+import '../../domain/models/date_value.dart';
+import '../../domain/models/supplier_account.dart';
 import '../../domain/models/medicine.dart';
 import '../../domain/services/billing_calculator.dart';
 import '../../domain/services/ocr_text.dart';
 import '../../domain/services/stock_receipt.dart';
 import '../../domain/services/supplier_bill_parser.dart';
+import '../../platform/bill_photo.dart';
 import '../../platform/device_features.dart';
-import '../../platform/photo_compress.dart';
-import '../../platform/text_reader.dart';
 import '../../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'distributor_field.dart';
 import 'medicine_picker.dart';
 
 final _billImageProvider = FutureProvider.autoDispose.family<Uint8List?, String>((ref, id) {
@@ -86,7 +88,11 @@ Future<bool> captureSupplierBill(BuildContext context, WidgetRef ref) async {
 /// the counter computer to review instead of opening the review here;
 /// [onSaved] receives the saved bill.
 Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file,
-    {OcrPage? page, EInvoiceCode? eInvoice, bool openReview = true, void Function(BillScan scan)? onSaved}) async {
+    {OcrPage? page,
+    EInvoiceCode? eInvoice,
+    bool openReview = true,
+    void Function(BillScan scan)? onSaved,
+    ({Uint8List? jpeg, OcrPage? page})? prepared}) async {
   final repo = ref.read(repositoryProvider)!;
   final ownGstin = ref.read(storeProvider).valueOrNull?.gstin ?? '';
   final medicines = _knownMedicines(ref);
@@ -107,12 +113,33 @@ Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file,
   BillScan? scan;
   Object? failure;
   try {
-    final bytes = await file.readAsBytes();
-    final jpeg = await compressPhoto(bytes);
-    final ocrPage = page ?? (DeviceFeatures.textReading ? await readTextFromPhoto(file.path) : null);
+    // Always turned upright first (the phone's rotation flag, and again if
+    // the text reads sideways), so what is read and what is kept match.
+    final ready = prepared ?? await prepareBillPhoto(await file.readAsBytes());
+    final jpeg = ready.jpeg;
+    final ocrPage = ready.page ?? page;
     var draft = ocrPage == null || ocrPage.isEmpty
         ? const BillDraft()
         : SupplierBillParser.parse(ocrPage, medicines, ownGstin: ownGstin);
+    // A line the shop's own list didn't match: look its name up in the
+    // full Indian medicine list so the review shows the proper name
+    // (still marked "not matched" until the pharmacist confirms it).
+    final india = ref.read(indiaCatalogueProvider).valueOrNull;
+    if (india != null && draft.lines.any((l) => l.medicineId == null)) {
+      draft = draft.copyWith(lines: [
+        for (final l in draft.lines)
+          if (l.medicineId != null || l.medicineName.trim().length < 3)
+            l
+          else
+            switch (india.byBrand(l.medicineName)) {
+              null => l,
+              final e => l.copyWith(
+                  medicineName: e.medicine.name,
+                  mrpPaise: l.mrpPaise > 0 ? l.mrpPaise : (e.referenceMrpPaise > 0 ? e.referenceMrpPaise : null),
+                ),
+            },
+      ]);
+    }
     if (eInvoice != null) {
       draft = draft.copyWith(
         supplierGstin: eInvoice.sellerGstin.isEmpty ? null : eInvoice.sellerGstin,
@@ -310,6 +337,9 @@ class _BillReviewScreenState extends ConsumerState<BillReviewScreen> {
       supplierName: draft.supplierName,
       supplierInvoiceNumber: draft.invoiceNumber,
       billScanId: widget.scanId,
+      payment: draft.payment == 'cash' ? PurchasePayment.cash : PurchasePayment.credit,
+      billDate: draft.invoiceDate,
+      billTotalPaise: draft.billTotalPaise,
     );
     final batch = ref.read(batchesProvider).valueOrNull?.where((b) => b.id == receipt.batchId).firstOrNull;
     problems.addAll(receipt.validate(now: DateTime.now(), existing: batch));
@@ -513,6 +543,14 @@ class _BillReviewScreenState extends ConsumerState<BillReviewScreen> {
         trailing: editable ? const Icon(PhosphorIconsRegular.pencilSimple) : null,
       ),
     );
+    // Paid in cash on delivery, or on credit (owed until paid).
+    final payment = Padding(
+      padding: const EdgeInsets.only(top: Space.s),
+      child: PaymentToggle(
+        value: draft.payment == 'cash' ? PurchasePayment.cash : PurchasePayment.credit,
+        onChanged: editable ? (p) => _change(draft.copyWith(payment: p.name)) : (_) {},
+      ),
+    );
 
     final lines = <Widget>[
       for (var i = 0; i < draft.lines.length; i++)
@@ -541,6 +579,7 @@ class _BillReviewScreenState extends ConsumerState<BillReviewScreen> {
       children: [
         if (!context.isWide) ...[photo(large: false), const SizedBox(height: Space.m)],
         header,
+        payment,
         const SizedBox(height: Space.l),
         Row(children: [
           Expanded(child: Text('Items (${draft.lines.length})', style: text.titleMedium)),
@@ -740,8 +779,7 @@ class _HeaderDialogState extends State<_HeaderDialog> {
       title: const Text('Supplier details'),
       content: DialogBody(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: _supplier, decoration: const InputDecoration(labelText: 'Supplier / distributor'),
-              textCapitalization: TextCapitalization.words),
+          DistributorField(controller: _supplier, label: 'Supplier / distributor'),
           gap,
           TextField(controller: _number, decoration: const InputDecoration(labelText: 'Bill number')),
           gap,
@@ -809,8 +847,8 @@ class _LineDialogState extends State<_LineDialog> {
       text: widget.line.expiryMonth == null
           ? ''
           : '${widget.line.expiryMonth.toString().padLeft(2, '0')}/${widget.line.expiryYear! % 100}');
-  late final _packs = TextEditingController(text: widget.line.packs > 0 ? '${widget.line.packs}' : '');
-  late final _free = TextEditingController(text: '${widget.line.freePacks}');
+  late final _packs = TextEditingController(text: widget.line.packs > 0 ? formatPacks(widget.line.packs) : '');
+  late final _free = TextEditingController(text: formatPacks(widget.line.freePacks));
   late final _rate = TextEditingController(
       text: widget.line.ratePaise > 0 ? formatRupees(widget.line.ratePaise, symbol: false).replaceAll(',', '') : '');
   late final _mrp = TextEditingController(
@@ -881,15 +919,15 @@ class _LineDialogState extends State<_LineDialog> {
               TextFormField(
                 controller: _packs,
                 decoration: InputDecoration(labelText: perPack > 1 ? 'Packs (×$perPack)' : 'Quantity'),
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(5)],
-                validator: (v) => (int.tryParse(v ?? '') ?? 0) <= 0 ? 'At least 1' : null,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')), LengthLimitingTextInputFormatter(8)],
+                validator: (v) => (parsePacks(v ?? '') ?? 0) <= 0 ? 'Enter packs' : null,
               ),
               TextFormField(
                 controller: _free,
                 decoration: const InputDecoration(labelText: 'Free'),
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(4)],
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')), LengthLimitingTextInputFormatter(7)],
               ),
             ),
             gap,
@@ -933,8 +971,8 @@ class _LineDialogState extends State<_LineDialog> {
                 batchNumber: Batch.normaliseBatchNumber(_batch.text),
                 expiryMonth: expiry.month,
                 expiryYear: expiry.year,
-                packs: int.parse(_packs.text),
-                freePacks: int.tryParse(_free.text) ?? 0,
+                packs: parsePacks(_packs.text)!,
+                freePacks: parsePacks(_free.text) ?? 0,
                 ratePaise: parseRupeesToPaise(_rate.text),
                 mrpPaise: parseRupeesToPaise(_mrp.text),
                 include: true,

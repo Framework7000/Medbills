@@ -32,8 +32,10 @@ class SaleLine {
   final int unitsPerPack;
   final int quantity; // base units
   final int mrpPaise; // per pack, GST-inclusive
-  final int lineTotalPaise;
+  final int lineTotalPaise; // what the customer pays for this line, after any discount
   final int costPaise; // purchase cost of this line, for profit reporting
+  final int mrpLinePaise; // the same quantity at full MRP (before discount)
+  final int ratePaise; // per pack price charged before any bill discount (≤ MRP)
 
   const SaleLine({
     required this.medicineId,
@@ -49,7 +51,13 @@ class SaleLine {
     required this.mrpPaise,
     required this.lineTotalPaise,
     required this.costPaise,
-  });
+    int? mrpLinePaise,
+    int? ratePaise,
+  })  : mrpLinePaise = mrpLinePaise ?? lineTotalPaise,
+        ratePaise = ratePaise ?? mrpPaise;
+
+  /// Discount on this line (MRP value minus what was charged).
+  int get discountPaise => mrpLinePaise - lineTotalPaise;
 
   BillLine get billLine => BillLine(lineTotalPaise: lineTotalPaise, gstRate: gstRate);
 
@@ -67,6 +75,8 @@ class SaleLine {
         'mrpPaise': mrpPaise,
         'lineTotalPaise': lineTotalPaise,
         'costPaise': costPaise,
+        'mrpLinePaise': mrpLinePaise,
+        'ratePaise': ratePaise,
       };
 
   factory SaleLine.fromMap(Map<String, dynamic> map) => SaleLine(
@@ -83,6 +93,9 @@ class SaleLine {
         mrpPaise: readInt(map['mrpPaise']),
         lineTotalPaise: readInt(map['lineTotalPaise']),
         costPaise: readInt(map['costPaise']),
+        // Bills made before discounts existed were charged at MRP.
+        mrpLinePaise: map['mrpLinePaise'] == null ? null : readInt(map['mrpLinePaise']),
+        ratePaise: map['ratePaise'] == null ? null : readInt(map['ratePaise']),
       );
 }
 
@@ -144,6 +157,13 @@ class SaleInvoice {
   final DateTime? cancelledAt;
   final String? cancelledByName;
 
+  /// Units of each line (same order as [lines]) the customer has returned.
+  final List<int> returnedUnits;
+  /// Money given back for those returns.
+  final int refundedPaise;
+  /// Discount typed for the whole bill, already spread over the lines.
+  final int billDiscountPaise;
+
   const SaleInvoice({
     required this.id,
     required this.storeId,
@@ -164,7 +184,25 @@ class SaleInvoice {
     this.cancellationReason,
     this.cancelledAt,
     this.cancelledByName,
+    this.returnedUnits = const [],
+    this.refundedPaise = 0,
+    this.billDiscountPaise = 0,
   });
+
+  /// Value of the goods at full MRP, before any discount.
+  int get mrpTotalPaise => lines.fold(0, (sum, l) => sum + l.mrpLinePaise);
+
+  /// Everything taken off MRP on this bill (line prices and bill discount).
+  int get discountPaise => mrpTotalPaise - grossPaise;
+
+  bool get hasReturns => refundedPaise > 0 || returnedUnits.any((u) => u > 0);
+
+  int returnedOf(int lineIndex) => lineIndex < returnedUnits.length ? returnedUnits[lineIndex] : 0;
+
+  /// Units of line [lineIndex] that can still be returned.
+  int returnableOf(int lineIndex) => lines[lineIndex].quantity - returnedOf(lineIndex);
+
+  bool get fullyReturned => [for (var i = 0; i < lines.length; i++) returnableOf(i)].every((u) => u <= 0);
 
   bool get isCancelled => status == SaleStatus.cancelled;
   int get taxablePaise => slabs.fold(0, (sum, s) => sum + s.taxablePaise);
@@ -195,6 +233,11 @@ class SaleInvoice {
         'cancellationReason': cancellationReason,
         'cancelledAt': cancelledAt,
         'cancelledByName': cancelledByName,
+        'mrpTotalPaise': mrpTotalPaise,
+        'discountPaise': discountPaise,
+        'billDiscountPaise': billDiscountPaise,
+        'returnedUnits': returnedUnits,
+        'refundedPaise': refundedPaise,
       };
 
   factory SaleInvoice.fromMap(Map<String, dynamic> map) {
@@ -223,6 +266,9 @@ class SaleInvoice {
       cancellationReason: map['cancellationReason'] as String?,
       cancelledAt: readDate(map['cancelledAt']),
       cancelledByName: map['cancelledByName'] as String?,
+      returnedUnits: ((map['returnedUnits'] as List?) ?? const []).map((e) => readInt(e)).toList(),
+      refundedPaise: readInt(map['refundedPaise']),
+      billDiscountPaise: readInt(map['billDiscountPaise']),
     );
   }
 }

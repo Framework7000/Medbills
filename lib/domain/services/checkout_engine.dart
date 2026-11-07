@@ -9,8 +9,10 @@ class CheckoutLineRequest {
   final String medicineId;
   final String batchId;
   final int quantity; // base units
+  /// Selling price per pack when sold below MRP; null = MRP.
+  final int? ratePaise;
 
-  const CheckoutLineRequest({required this.medicineId, required this.batchId, required this.quantity});
+  const CheckoutLineRequest({required this.medicineId, required this.batchId, required this.quantity, this.ratePaise});
 }
 
 class CheckoutRequest {
@@ -20,9 +22,12 @@ class CheckoutRequest {
   final String customerPhone;
   final String? customerId; // required for credit sales
   final PrescriptionRecord? prescription;
+  /// Rupees taken off the whole bill; spread over the lines in proportion.
+  final int billDiscountPaise;
 
   const CheckoutRequest({
     required this.lines,
+    this.billDiscountPaise = 0,
     required this.paymentMode,
     this.customerName = '',
     this.customerPhone = '',
@@ -63,12 +68,14 @@ class CheckoutEngine {
     }
 
     final requestedPerBatch = <String, int>{};
+    final ratePerBatch = <String, int>{};
     for (final line in request.lines) {
       if (line.quantity <= 0) {
         problems.add('Quantities must be greater than zero.');
         continue;
       }
       requestedPerBatch.update(line.batchId, (v) => v + line.quantity, ifAbsent: () => line.quantity);
+      if (line.ratePaise != null) ratePerBatch.putIfAbsent(line.batchId, () => line.ratePaise!);
     }
 
     final saleLines = <SaleLine>[];
@@ -102,11 +109,25 @@ class CheckoutEngine {
       schedules.add(medicine.scheduleType);
       newQuantities[batch.id] = batch.quantity - entry.value;
 
-      final lineTotal = BillingCalculator.linePaise(
+      final mrpLine = BillingCalculator.linePaise(
         mrpPaisePerPack: batch.mrpPaise,
         unitsPerPack: medicine.unitsPerPack,
         quantityUnits: entry.value,
       );
+      final rate = ratePerBatch[batch.id] ?? batch.mrpPaise;
+      if (rate > batch.mrpPaise) {
+        problems.add('$name: price ${formatRupees(rate)} is above the MRP ${formatRupees(batch.mrpPaise)}. '
+            'A medicine cannot be sold above MRP.');
+      } else if (rate <= 0) {
+        problems.add('$name: enter a price above zero.');
+      }
+      final lineTotal = rate == batch.mrpPaise
+          ? mrpLine
+          : BillingCalculator.linePaise(
+              mrpPaisePerPack: rate,
+              unitsPerPack: medicine.unitsPerPack,
+              quantityUnits: entry.value,
+            );
       final cost = BillingCalculator.linePaise(
         mrpPaisePerPack: batch.purchasePricePaise,
         unitsPerPack: medicine.unitsPerPack,
@@ -126,7 +147,26 @@ class CheckoutEngine {
         mrpPaise: batch.mrpPaise,
         lineTotalPaise: lineTotal,
         costPaise: cost,
+        mrpLinePaise: mrpLine,
+        ratePaise: rate,
       ));
+    }
+
+    final subtotal = saleLines.fold<int>(0, (s, l) => s + l.lineTotalPaise);
+    if (request.billDiscountPaise < 0) {
+      problems.add('The discount cannot be negative.');
+    } else if (request.billDiscountPaise > 0 && request.billDiscountPaise >= subtotal) {
+      problems.add('The discount ${formatRupees(request.billDiscountPaise)} is more than the bill.');
+    }
+    var finalLines = saleLines;
+    if (request.billDiscountPaise > 0 && request.billDiscountPaise < subtotal) {
+      final shares = BillingCalculator.spread(
+        request.billDiscountPaise,
+        [for (final l in saleLines) l.lineTotalPaise],
+      );
+      finalLines = [
+        for (var i = 0; i < saleLines.length; i++) _withTotal(saleLines[i], saleLines[i].lineTotalPaise - shares[i]),
+      ];
     }
 
     if (schedules.any((s) => s.requiresRegisterEntry) &&
@@ -141,9 +181,27 @@ class CheckoutEngine {
     if (problems.isNotEmpty) throw CheckoutException(problems.toSet().toList());
 
     return CheckoutPlan(
-      lines: saleLines,
-      summary: BillingCalculator.summarise(saleLines.map((l) => l.billLine)),
+      lines: finalLines,
+      summary: BillingCalculator.summarise(finalLines.map((l) => l.billLine)),
       newBatchQuantities: newQuantities,
     );
   }
+
+  static SaleLine _withTotal(SaleLine l, int total) => SaleLine(
+        medicineId: l.medicineId,
+        batchId: l.batchId,
+        name: l.name,
+        batchNumber: l.batchNumber,
+        expiryDate: l.expiryDate,
+        hsnCode: l.hsnCode,
+        gstRate: l.gstRate,
+        scheduleType: l.scheduleType,
+        unitsPerPack: l.unitsPerPack,
+        quantity: l.quantity,
+        mrpPaise: l.mrpPaise,
+        lineTotalPaise: total,
+        costPaise: l.costPaise,
+        mrpLinePaise: l.mrpLinePaise,
+        ratePaise: l.ratePaise,
+      );
 }

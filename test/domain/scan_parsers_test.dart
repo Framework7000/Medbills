@@ -138,6 +138,26 @@ MICRO LABS LIMITED''');
       expect((aug.mrpPaise, aug.ratePaise), (22340, 16085));
     });
 
+    test('a row with MFG and EXP takes the expiry, and HSN is never a quantity or price', () {
+      final page = OcrPage.fromText('1  XYZOCIN 250 TAB  30049099  XZ7781  MFG 01/26  EXP 12/27  6  80.00  58.00  348.00');
+      final line = SupplierBillParser.parse(page, medicines).lines.single;
+      expect(line.batchNumber, 'XZ7781');
+      expect((line.expiryMonth, line.expiryYear), (12, 2027));
+      expect(line.packs, 6);
+      expect((line.mrpPaise, line.ratePaise), (8000, 5800));
+
+      // Unlabelled: the later month is the expiry.
+      final plain = SupplierBillParser.parse(OcrPage.fromText('2  XYZOCIN 250 TAB  XZ7782  03/26  03/28  4  80.00  58.00'), medicines);
+      expect((plain.lines.single.expiryMonth, plain.lines.single.expiryYear), (3, 2028));
+    });
+
+    test('a label with a number is not a batch, and thousands of packs is a misread', () {
+      final page = OcrPage.fromText('NO-22  XYZOCIN 250 TAB  XZ7781  08/27  2909  80.00  58.00');
+      final line = SupplierBillParser.parse(page, medicines).lines.single;
+      expect(line.batchNumber, 'XZ7781');
+      expect(line.packs, 0, reason: 'left for the pharmacist to fill');
+    });
+
     test('keeps an unknown product line for the pharmacist to match', () {
       final page = OcrPage.fromText('1  XYZOCIN 250 TAB  10S  XZ7781  08/27  6  80.00  58.00  348.00');
       final line = SupplierBillParser.parse(page, medicines).lines.single;
@@ -192,5 +212,19 @@ GROSS TOTAL : 663.96''');
 
       expect(draft.billTotalPaise, 66396);
     });
+  });
+
+  test('a photo lying on its side is recognised from the text direction', () {
+    const upright = OcrPage([
+      OcrLine('SHREE GANESH PHARMA', left: 0, right: 400, top: 0, bottom: 20),
+      OcrLine('DOLO 650 TAB', left: 0, right: 200, top: 30, bottom: 50),
+    ]);
+    const sideways = OcrPage([
+      OcrLine('SHREE GANESH PHARMA', left: 0, right: 20, top: 0, bottom: 400),
+      OcrLine('DOLO 650 TAB', left: 30, right: 50, top: 0, bottom: 200),
+    ]);
+    expect(upright.uprightScore, greaterThan(0));
+    expect(sideways.uprightScore, lessThan(0));
+    expect(upright.readableChars, sideways.readableChars);
   });
 }

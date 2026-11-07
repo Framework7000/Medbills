@@ -19,7 +19,9 @@ import '../domain/models/purchase_record.dart';
 import '../domain/models/sale_invoice.dart';
 import '../domain/models/scan_link.dart';
 import '../domain/models/store_profile.dart';
+import '../domain/models/supplier_account.dart';
 import '../domain/services/stock_summary.dart';
+import '../domain/services/supplier_ledger.dart';
 import 'cart.dart';
 
 /// True when Firebase initialised and the app runs against the shared cloud
@@ -83,13 +85,31 @@ final batchesProvider = StreamProvider<List<Batch>>((ref) => _repo(ref).watchBat
 
 final recentSalesProvider = StreamProvider<List<SaleInvoice>>((ref) => _repo(ref).watchRecentSales());
 
-final purchasesProvider = StreamProvider<List<PurchaseRecord>>((ref) => _repo(ref).watchRecentPurchases());
+final purchasesProvider = StreamProvider<List<PurchaseRecord>>((ref) => _repo(ref).watchRecentPurchases(limit: 1000));
 
 final customersProvider = StreamProvider<List<CustomerCredit>>((ref) => _repo(ref).watchCustomers());
 
 final ledgerProvider = StreamProvider.family<List<CreditLedgerEntry>, String>(
   (ref, customerId) => _repo(ref).watchLedger(customerId),
 );
+
+final distributorsProvider = StreamProvider<List<Distributor>>((ref) => _repo(ref).watchDistributors());
+
+final supplierBillsProvider = StreamProvider<List<SupplierBill>>((ref) => _repo(ref).watchSupplierBills());
+
+final supplierPaymentsProvider = StreamProvider<List<SupplierPayment>>((ref) => _repo(ref).watchSupplierPayments());
+
+/// What is owed to each distributor, rebuilt on any bill or payment change.
+final supplierLedgerProvider = Provider<AsyncValue<SupplierLedger>>((ref) {
+  final d = ref.watch(distributorsProvider);
+  final b = ref.watch(supplierBillsProvider);
+  final p = ref.watch(supplierPaymentsProvider);
+  for (final v in [d, b, p]) {
+    if (v.hasError) return AsyncValue.error(v.error!, v.stackTrace ?? StackTrace.current);
+  }
+  if (!d.hasValue || !b.hasValue || !p.hasValue) return const AsyncValue.loading();
+  return AsyncValue.data(SupplierLedger.build(distributors: d.value!, bills: b.value!, payments: p.value!));
+});
 
 final billScansProvider = StreamProvider<List<BillScan>>((ref) => _repo(ref).watchBillScans());
 

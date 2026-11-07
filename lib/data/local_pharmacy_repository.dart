@@ -8,8 +8,11 @@ import '../domain/models/medicine.dart';
 import '../domain/models/purchase_record.dart';
 import '../domain/models/sale_invoice.dart';
 import '../domain/models/scan_link.dart';
+import '../domain/models/sale_return.dart';
 import '../domain/models/store_profile.dart';
+import '../domain/models/supplier_account.dart';
 import '../domain/services/batch_correction.dart';
+import '../domain/services/stock_adjustment.dart';
 import '../domain/services/billing_calculator.dart';
 import '../domain/services/checkout_engine.dart';
 import '../domain/services/invoice_number.dart';
@@ -54,6 +57,10 @@ class LocalPharmacyRepository implements PharmacyRepository {
   final _billImages = <String, Uint8List>{};
   final _stations = <String, ScanStation>{};
   final _scanEvents = <String, ScanEvent>{};
+  final _returns = <SaleReturn>[];
+  final _distributors = <String, Distributor>{};
+  final _supplierBills = <String, SupplierBill>{};
+  final _supplierPayments = <String, SupplierPayment>{};
   final _changes = StreamController<void>.broadcast();
   var _idCounter = 0;
 
@@ -186,6 +193,7 @@ class LocalPharmacyRepository implements PharmacyRepository {
       slabs: plan.summary.slabs,
       grossPaise: plan.summary.grossPaise,
       payablePaise: plan.summary.payablePaise,
+      billDiscountPaise: request.billDiscountPaise,
       prescription: plan.lines.any((l) => l.scheduleType.requiresRegisterEntry) ? request.prescription : null,
     );
 
@@ -224,6 +232,9 @@ class LocalPharmacyRepository implements PharmacyRepository {
     final sale = _sales[saleId];
     if (sale == null) throw const OperationException(['Sale not found.']);
     if (sale.isCancelled) throw const OperationException(['This sale is already cancelled.']);
+    if (sale.hasReturns) {
+      throw const OperationException(['Items from this bill were returned. Return the rest instead of cancelling.']);
+    }
     final now = DateTime.now();
     for (final line in sale.lines) {
       final batch = _batches[line.batchId];
@@ -246,7 +257,7 @@ class LocalPharmacyRepository implements PharmacyRepository {
   }
 
   @override
-  Future<void> receiveStock(StockReceipt receipt) async {
+  Future<bool> receiveStock(StockReceipt receipt) async {
     requireManager(actor, 'receive stock');
     final now = DateTime.now();
     final existing = _batches[receipt.batchId];
@@ -289,6 +300,141 @@ class LocalPharmacyRepository implements PharmacyRepository {
       createdBy: actor.uid,
       createdByName: actor.name,
     ));
+    final bill = receipt.billAfter(_supplierBills[receipt.supplierBillId(now)],
+        storeId: storeId, uid: actor.uid, userName: actor.name, now: now);
+    if (bill != null) {
+      _supplierBills[bill.id] = bill;
+      _distributors.putIfAbsent(
+        bill.distributorId,
+        () => Distributor(id: bill.distributorId, storeId: storeId, name: bill.distributorName, createdAt: now),
+      );
+    }
+    _notify();
+    return true;
+  }
+
+  @override
+  Future<SaleReturn> returnSaleItems({
+    required String saleId,
+    required Map<int, int> units,
+    required RefundMode refundMode,
+    String reason = '',
+  }) async {
+    requireManager(actor, 'take back a return');
+    final sale = _sales[saleId];
+    if (sale == null) throw const OperationException(['Bill not found.']);
+    final ReturnPlan plan;
+    try {
+      plan = SaleReturnPlanner.plan(sale: sale, units: units, mode: refundMode);
+    } on ReturnException catch (e) {
+      throw OperationException(e.problems);
+    }
+    final customer = sale.customerId == null ? null : _customers[sale.customerId];
+    if (refundMode == RefundMode.udhaar) {
+      if (customer == null) throw const OperationException(['The udhaar account no longer exists.']);
+      if (plan.refundPaise > customer.outstandingBalancePaise) {
+        throw OperationException(['Only ${formatRupees(customer.outstandingBalancePaise)} udhaar is left; '
+            'give the rest back in cash.']);
+      }
+    }
+    final now = DateTime.now();
+    final ret = SaleReturn(
+      id: _nextId('ret'),
+      storeId: storeId,
+      saleId: sale.id,
+      invoiceNumber: sale.invoiceNumber,
+      customerName: sale.customerName,
+      lines: plan.lines,
+      refundMode: refundMode,
+      reason: reason.trim(),
+      createdAt: now,
+      createdBy: actor.uid,
+      createdByName: actor.name,
+    );
+    for (final l in plan.lines) {
+      final b = _batches[l.batchId];
+      if (b != null) _batches[b.id] = b.copyWith(quantity: b.quantity + l.quantity);
+    }
+    if (refundMode == RefundMode.udhaar && customer != null) {
+      _customers[customer.id] =
+          customer.copyWith(outstandingBalancePaise: customer.outstandingBalancePaise - plan.refundPaise);
+      _addLedger(customer.id, CreditEntryType.saleCancelled, plan.refundPaise, sale.invoiceNumber,
+          'Return${reason.trim().isEmpty ? '' : ': ${reason.trim()}'}', now);
+    }
+    _sales[sale.id] = SaleInvoice.fromMap({
+      ...sale.toMap(),
+      'returnedUnits': plan.newReturnedUnits,
+      'refundedPaise': sale.refundedPaise + plan.refundPaise,
+    });
+    _returns.add(ret);
+    _notify();
+    return ret;
+  }
+
+  @override
+  Future<List<SaleReturn>> returnsBetween(DateTime from, DateTime to) async =>
+      _returns.where((r) => !r.createdAt.isBefore(from) && r.createdAt.isBefore(to)).toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+  @override
+  Stream<List<SaleReturn>> watchReturnsFor(String saleId) =>
+      _watch(() => _returns.where((r) => r.saleId == saleId).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
+
+  @override
+  Future<void> adjustBatchStock(String batchId, StockAdjustment adjustment) async {
+    requireManager(actor, 'change stock');
+    final problems = adjustment.problems();
+    if (problems.isNotEmpty) throw OperationException(problems);
+    final batch = _batches[batchId];
+    if (batch == null) throw const OperationException(['Batch not found.']);
+    _batches[batchId] = batch.copyWith(quantity: adjustment.newQuantity);
+    _notify();
+  }
+
+  @override
+  Stream<List<Distributor>> watchDistributors() => _watch(() => _distributors.values.toList()
+    ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase())));
+
+  @override
+  Stream<List<SupplierBill>> watchSupplierBills() =>
+      _watch(() => _supplierBills.values.toList()..sort((a, b) => b.billDate.compareTo(a.billDate)));
+
+  @override
+  Stream<List<SupplierPayment>> watchSupplierPayments() =>
+      _watch(() => _supplierPayments.values.toList()..sort((a, b) => b.paidOn.compareTo(a.paidOn)));
+
+  @override
+  Future<void> saveDistributor(Distributor distributor) async {
+    requireManager(actor, 'edit distributors');
+    final problems = distributorProblems(distributor);
+    if (problems.isNotEmpty) throw OperationException(problems);
+    _distributors[distributor.id] = distributor;
+    // The name shown on its bills and payments follows the list.
+    for (final b in _supplierBills.values.where((b) => b.distributorId == distributor.id).toList()) {
+      _supplierBills[b.id] = b.copyWith(distributorName: distributor.name);
+    }
+    _notify();
+  }
+
+  @override
+  Future<void> saveSupplierBill(SupplierBill bill) async {
+    requireManager(actor, 'record supplier bills');
+    final problems = supplierBillProblems(bill);
+    if (problems.isNotEmpty) throw OperationException(problems);
+    _supplierBills[bill.id] = bill;
+    _distributors.putIfAbsent(bill.distributorId,
+        () => Distributor(id: bill.distributorId, storeId: storeId, name: bill.distributorName, createdAt: DateTime.now()));
+    _notify();
+  }
+
+  @override
+  Future<void> saveSupplierPayment(SupplierPayment payment) async {
+    requireManager(actor, 'record payments');
+    final problems = supplierPaymentProblems(payment);
+    if (problems.isNotEmpty) throw OperationException(problems);
+    _supplierPayments[payment.id] = payment;
+    _distributors.putIfAbsent(payment.distributorId,
+        () => Distributor(id: payment.distributorId, storeId: storeId, name: payment.distributorName, createdAt: DateTime.now()));
     _notify();
   }
 

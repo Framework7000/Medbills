@@ -3,6 +3,46 @@
 Read this first, then `README.md`. Branch: `claude/medbills-repo-t8ueeh`
 (GitHub: Framework7000/Medbills). Everything below is pushed.
 
+## 7 Nov 2026: Yash bhaiya's shop list (v1.2.0)
+
+Done, tested (181 Flutter tests; 88 Firestore-rules checks in the real emulator):
+
+- **Billing:** a line can be sold below MRP (price per pack, −5/10/15/20%),
+  never above. A bill discount (₹ or %) is spread exactly over the lines
+  (`BillingCalculator.spread`), so GST is on what was charged. Saved on the
+  sale: `SaleLine.mrpLinePaise`, `ratePaise`, `SaleInvoice.billDiscountPaise`.
+  Old sales read as "charged at MRP".
+- **Returns:** `returnSaleItems` → `saleReturns/{id}` (dated the day of the
+  return, for daily figures), `sales.returnedUnits/refundedPaise`, stock
+  back, udhaar reduced if chosen. A bill with returns can't be cancelled.
+- **Stock count:** `adjustBatchStock` (managers, audit `stock_adjusted`),
+  from the batch's stock chip. Stock value bar (`InventoryValue`).
+- **Purchase & Payment:** `distributors`, `supplierBills` (cash/credit, old
+  bills = `isOpening`, due date), `supplierPayments`. Receiving stock with a
+  supplier name adds its cost to that bill in the same transaction
+  (`StockReceipt.billAfter`). `SupplierLedger` works out what is owed
+  (payments to a named bill first, then oldest first) and reminders.
+- **Reports = P&L:** `DayBook` (sales by mode, returns, cash/credit
+  purchases, payments, plus/minus, per day), donut + bar charts
+  (`widgets/charts.dart`, no chart package), 3 tables.
+- **Invoice:** estimate-style A4 with logo, signature and seal (Settings →
+  Bill look; images kept on the store doc, ≤150 KB each), amount in words,
+  bank details, terms. WhatsApp: PDF or PNG (phone share sheet; PC saves to
+  Downloads\MedBills bills and opens the chat).
+- **Scanning:** bill photos turned upright (EXIF + sideways-text check) before
+  reading and keeping; MFG vs EXP; HSN never a qty/price; label tokens never
+  a batch; qty > 999 = misread; unmatched names looked up in the India list.
+- Decimal paid packs (4.5); distributor suggestions; recent medicines in
+  Purchases; Edit-medicine overlap fixed; GST list 0/5/18.
+
+**Owner must publish `firestore.rules` once** (console → Firestore → Rules →
+paste → Publish). Until then stock still goes in (the supplier-bill part
+falls back), but bills, payments and returns are refused.
+
+Not done: real supplier-bill photos are still needed to tune the parser on
+this shop's distributors' formats; CIMS data is proprietary (the 2.46 lakh
+medicine list is already bundled).
+
 ## PLAN CHANGE (2 Nov 2026): Windows = counter, ANDROID = scanner
 
 The owner dropped the iPhone because of the 7-day free-Apple-ID limit. The

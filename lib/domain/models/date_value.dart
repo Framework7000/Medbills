@@ -26,3 +26,22 @@ String readString(Object? value, [String fallback = '']) {
   if (value == null) return fallback;
   return value.toString();
 }
+
+/// A number that may have a fraction (4.5 strips), kept as an int when whole.
+num readNum(Object? value, [num fallback = 0]) {
+  num? n;
+  if (value is num) n = value;
+  if (value is String) n = num.tryParse(value);
+  if (n == null) return fallback;
+  return n == n.roundToDouble() ? n.round() : n;
+}
+
+/// Parses a typed pack count such as "4", "4.5" or "4,5" (>= 0), or null.
+num? parsePacks(String input) {
+  final t = input.trim().replaceAll(',', '.');
+  if (!RegExp(r'^\d{1,5}(\.\d{1,2})?$').hasMatch(t)) return null;
+  return readNum(t);
+}
+
+/// "4", "4.5" — a pack count for display.
+String formatPacks(num packs) => packs == packs.roundToDouble() ? '${packs.round()}' : '$packs';

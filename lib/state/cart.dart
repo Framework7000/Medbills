@@ -22,6 +22,8 @@ class CartLine {
   final int mrpPaise; // per pack
   final double gstRate;
   final ScheduleType scheduleType;
+  /// Price per pack when sold below MRP; null = MRP.
+  final int? ratePaise;
 
   const CartLine({
     required this.medicineId,
@@ -34,12 +36,36 @@ class CartLine {
     required this.mrpPaise,
     required this.gstRate,
     required this.scheduleType,
+    this.ratePaise,
   });
 
-  int get lineTotalPaise => BillingCalculator.linePaise(
+  int get effectiveRatePaise => ratePaise ?? mrpPaise;
+  bool get isDiscounted => ratePaise != null && ratePaise! < mrpPaise;
+
+  /// This line at full MRP.
+  int get mrpLinePaise => BillingCalculator.linePaise(
         mrpPaisePerPack: mrpPaise,
         unitsPerPack: unitsPerPack,
         quantityUnits: quantity,
+      );
+
+  /// This line at the price being charged (before any bill discount).
+  int get lineTotalPaise => ratePaise == null || ratePaise == mrpPaise
+      ? mrpLinePaise
+      : BillingCalculator.linePaise(mrpPaisePerPack: ratePaise!, unitsPerPack: unitsPerPack, quantityUnits: quantity);
+
+  CartLine withRate(int? rate) => CartLine(
+        medicineId: medicineId,
+        batchId: batchId,
+        name: name,
+        batchNumber: batchNumber,
+        expiryDate: expiryDate,
+        unitsPerPack: unitsPerPack,
+        quantity: quantity,
+        mrpPaise: mrpPaise,
+        gstRate: gstRate,
+        scheduleType: scheduleType,
+        ratePaise: rate == null || rate >= mrpPaise ? null : rate,
       );
 
   CartLine withQuantity(int units) => CartLine(
@@ -53,6 +79,7 @@ class CartLine {
         mrpPaise: mrpPaise,
         gstRate: gstRate,
         scheduleType: scheduleType,
+        ratePaise: ratePaise,
       );
 }
 
@@ -62,9 +89,12 @@ class CartState {
   final String customerName;
   final String customerPhone;
   final CustomerCredit? creditCustomer;
+  /// Rupees off the whole bill (spread over the lines at checkout).
+  final int billDiscountPaise;
 
   const CartState({
     this.lines = const [],
+    this.billDiscountPaise = 0,
     this.paymentMode = PaymentMode.cash,
     this.customerName = '',
     this.customerPhone = '',
@@ -73,9 +103,35 @@ class CartState {
 
   bool get isEmpty => lines.isEmpty;
 
-  BillSummary get summary => BillingCalculator.summarise(
-        lines.map((l) => BillLine(lineTotalPaise: l.lineTotalPaise, gstRate: l.gstRate)),
-      );
+  /// Sum of the lines at their prices, before the bill discount.
+  int get subtotalPaise => lines.fold(0, (s, l) => s + l.lineTotalPaise);
+
+  /// The lines at full MRP.
+  int get mrpTotalPaise => lines.fold(0, (s, l) => s + l.mrpLinePaise);
+
+  /// The bill discount that will actually apply (ignored if it's not less
+  /// than the bill, exactly as the checkout does).
+  int get appliedBillDiscountPaise =>
+      billDiscountPaise > 0 && billDiscountPaise < subtotalPaise ? billDiscountPaise : 0;
+
+  /// What each line will be charged, after the bill discount.
+  List<int> get netLineTotals {
+    final totals = [for (final l in lines) l.lineTotalPaise];
+    final discount = appliedBillDiscountPaise;
+    if (discount == 0) return totals;
+    final shares = BillingCalculator.spread(discount, totals);
+    return [for (var i = 0; i < totals.length; i++) totals[i] - shares[i]];
+  }
+
+  /// Everything taken off MRP (line prices and bill discount).
+  int get totalDiscountPaise => mrpTotalPaise - subtotalPaise + appliedBillDiscountPaise;
+
+  BillSummary get summary {
+    final net = netLineTotals;
+    return BillingCalculator.summarise([
+      for (var i = 0; i < lines.length; i++) BillLine(lineTotalPaise: net[i], gstRate: lines[i].gstRate),
+    ]);
+  }
 
   Map<String, int> get unitsByBatch {
     final map = <String, int>{};
@@ -94,9 +150,13 @@ class CartState {
     String? customerPhone,
     CustomerCredit? creditCustomer,
     bool clearCreditCustomer = false,
+    int? billDiscountPaise,
   }) {
+    final newLines = lines ?? this.lines;
     return CartState(
-      lines: lines ?? this.lines,
+      lines: newLines,
+      // An empty bill has no discount.
+      billDiscountPaise: newLines.isEmpty ? 0 : billDiscountPaise ?? this.billDiscountPaise,
       paymentMode: paymentMode ?? this.paymentMode,
       customerName: customerName ?? this.customerName,
       customerPhone: customerPhone ?? this.customerPhone,
@@ -107,8 +167,14 @@ class CartState {
   CheckoutRequest toRequest({PrescriptionRecord? prescription}) => CheckoutRequest(
         lines: [
           for (final l in lines)
-            CheckoutLineRequest(medicineId: l.medicineId, batchId: l.batchId, quantity: l.quantity),
+            CheckoutLineRequest(
+              medicineId: l.medicineId,
+              batchId: l.batchId,
+              quantity: l.quantity,
+              ratePaise: l.isDiscounted ? l.ratePaise : null,
+            ),
         ],
+        billDiscountPaise: appliedBillDiscountPaise,
         paymentMode: paymentMode,
         customerName: customerName,
         customerPhone: customerPhone,
@@ -186,6 +252,19 @@ class CartNotifier extends StateNotifier<CartState> {
       lines[index] = lines[index].withQuantity(left);
       state = state.copyWith(lines: lines);
     }
+  }
+
+  /// Sells line [index] at [ratePaise] per pack (null or ≥ MRP = MRP).
+  void setLineRate(int index, int? ratePaise) {
+    if (index < 0 || index >= state.lines.length) return;
+    final lines = [...state.lines];
+    lines[index] = lines[index].withRate(ratePaise);
+    state = state.copyWith(lines: lines);
+  }
+
+  /// Rupees off the whole bill; 0 removes it.
+  void setBillDiscount(int paise) {
+    state = state.copyWith(billDiscountPaise: paise < 0 ? 0 : paise);
   }
 
   void setPaymentMode(PaymentMode mode) {

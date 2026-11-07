@@ -26,6 +26,23 @@ class OcrPage {
 
   bool get isEmpty => lines.isEmpty;
 
+  /// Lines that run left to right (wider than tall) minus lines that run up
+  /// or down. Negative: the photo is lying on its side and should be turned.
+  int get uprightScore {
+    var score = 0;
+    for (final l in lines) {
+      if (l.text.trim().length < 3) continue;
+      final w = l.right - l.left;
+      if (w > l.height * 1.2) score++;
+      if (l.height > w * 1.2) score--;
+    }
+    return score;
+  }
+
+  /// How much readable text there is (letters and digits), to compare two
+  /// readings of the same photo turned different ways.
+  int get readableChars => lines.fold(0, (s, l) => s + l.text.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').length);
+
   String get text => lines.map((l) => l.text).join('\n');
 
   /// Lines regrouped into visual rows (a bill's table row is often read as
