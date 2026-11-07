@@ -112,8 +112,10 @@ opens: drag the file into it.
 
 ## First time, owner only
 
-1. Settings → **Update medicines** → **Update all**. This updates GST to 5%
-   and the Schedule H1 corrections. Past bills are not changed.
+1. Settings → **Update medicines** → **Update all**. This updates GST to 5%,
+   the Schedule H1 corrections, and syrups / drops / creams that were
+   counted as "× 60" (their ml) to 1 per bottle, keeping the same number of
+   bottles in stock. Past bills are not changed.
 2. **Publish the new database rules** (needed for Purchase & Payment and
    returns, once): open https://console.firebase.google.com → project
    **medbills-176df** → Firestore Database → **Rules**. Replace everything

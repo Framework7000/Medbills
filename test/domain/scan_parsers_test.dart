@@ -158,6 +158,25 @@ MICRO LABS LIMITED''');
       expect(line.packs, 0, reason: 'left for the pharmacist to fill');
     });
 
+    test('a bill photographed on its side reads the same as an upright one', () {
+      final upright = SupplierBillParser.parse(bill(), medicines, ownGstin: '23ABCDE1234F1Z5');
+      for (final clockwise in [true, false]) {
+        // Text running up (or down) the photo: boxes are tall and thin.
+        final sideways = bill().turned(clockwise: clockwise);
+        expect(sideways.uprightScore, lessThan(0));
+        final draft = SupplierBillParser.parse(sideways, medicines, ownGstin: '23ABCDE1234F1Z5');
+        expect(draft.lines.map((l) => l.batchNumber), upright.lines.map((l) => l.batchNumber));
+        expect(draft.lines.map((l) => l.packs), upright.lines.map((l) => l.packs));
+        expect(draft.invoiceNumber, upright.invoiceNumber);
+        expect(draft.billTotalPaise, upright.billTotalPaise);
+      }
+    });
+
+    test('a whole page run together is never taken as one medicine', () {
+      final page = OcrPage.fromText('1  XYZOCIN 250 TAB  XZ7781  08/27  6  80.00  58.00 ${'ALL SUBJECT TO JABALPUR JURISDICTION ' * 8}');
+      expect(SupplierBillParser.parse(page, medicines).lines, isEmpty);
+    });
+
     test('keeps an unknown product line for the pharmacist to match', () {
       final page = OcrPage.fromText('1  XYZOCIN 250 TAB  10S  XZ7781  08/27  6  80.00  58.00  348.00');
       final line = SupplierBillParser.parse(page, medicines).lines.single;

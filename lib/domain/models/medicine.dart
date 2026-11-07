@@ -21,6 +21,10 @@ class Medicine {
   final int minStock; // base units
   final String shelfLocation;
   final DateTime updatedAt;
+  /// Units per pack before a pack-size correction (e.g. a syrup once stored
+  /// as 60 per bottle). Bills made before it are converted with this when
+  /// their stock comes back (return or cancel).
+  final int? previousUnitsPerPack;
 
   const Medicine({
     required this.id,
@@ -39,7 +43,18 @@ class Medicine {
     required this.minStock,
     required this.shelfLocation,
     required this.updatedAt,
+    this.previousUnitsPerPack,
   });
+
+  /// Base units to put back on the shelf for [quantity] units sold when a
+  /// pack held [soldUnitsPerPack] units (they differ only after a pack-size
+  /// correction).
+  int unitsNowFor(int quantity, int soldUnitsPerPack) {
+    if (soldUnitsPerPack == unitsPerPack || soldUnitsPerPack < 1 || previousUnitsPerPack != soldUnitsPerPack) {
+      return quantity;
+    }
+    return (quantity * unitsPerPack * 2 + soldUnitsPerPack) ~/ (soldUnitsPerPack * 2);
+  }
 
   Medicine copyWith({
     String? id,
@@ -58,8 +73,10 @@ class Medicine {
     int? minStock,
     String? shelfLocation,
     DateTime? updatedAt,
+    int? previousUnitsPerPack,
   }) {
     return Medicine(
+      previousUnitsPerPack: previousUnitsPerPack ?? this.previousUnitsPerPack,
       id: id ?? this.id,
       storeId: storeId ?? this.storeId,
       catalogueId: catalogueId ?? this.catalogueId,
@@ -97,6 +114,7 @@ class Medicine {
       'minStock': minStock,
       'shelfLocation': shelfLocation,
       'updatedAt': updatedAt,
+      if (previousUnitsPerPack != null) 'previousUnitsPerPack': previousUnitsPerPack,
     };
   }
 
@@ -120,6 +138,7 @@ class Medicine {
       minStock: readInt(map['minStock']),
       shelfLocation: readString(map['shelfLocation']),
       updatedAt: readDate(map['updatedAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      previousUnitsPerPack: map['previousUnitsPerPack'] == null ? null : readInt(map['previousUnitsPerPack']),
     );
   }
 }

@@ -7,6 +7,9 @@ import 'package:nuskha_pms/domain/services/billing_calculator.dart';
 import 'package:nuskha_pms/domain/services/checkout_engine.dart';
 import 'package:nuskha_pms/domain/services/day_book.dart';
 import 'package:nuskha_pms/domain/services/stock_summary.dart';
+import 'package:nuskha_pms/domain/services/pack_units.dart';
+import 'package:nuskha_pms/domain/services/master_corrections.dart';
+import 'package:nuskha_pms/data/repositories/india_catalogue.dart';
 import 'package:nuskha_pms/domain/services/supplier_ledger.dart';
 import 'package:nuskha_pms/state/cart.dart';
 
@@ -215,5 +218,33 @@ void main() {
     expect(v.costPaise, 23 * 2400 + (2400 * 7 * 2 + 15) ~/ 30);
     expect(v.mrpPaise, 23 * 3360 + 3360 * 7 ~/ 15);
     expect(v.expiredCostPaise, 2400);
+  });
+
+  test('a bottle or tube is one unit per pack, never its ml or grams', () {
+    expect(PackUnits.forCatalogue('bottle of 60 ml Oral Suspension', 60), 1);
+    expect(PackUnits.forCatalogue('tube of 20 gm Cream', 20), 1);
+    expect(PackUnits.forCatalogue('strip of 15 tablets', 15), 15);
+    expect(PackUnits.forCatalogue('packet of 30 tablets', 1), 30);
+    expect(PackUnits.forCatalogue('box of 30 gummies', 30), 30);
+    final india = IndiaCatalogue.fromTsv(
+      'az_9\tCalpol Syrup\tparacetamol 120mg\tGSK\tbottle of 60 ml Syrup\t60\t4500\t2022-11\tUNKNOWN\t5\t300490\n'
+      'az_10\tDolo 650 Tablet\tparacetamol 650mg\tMicro Labs\tstrip of 15 tablets\t15\t3360\t2022-11\tUNKNOWN\t5\t300490',
+      '',
+    );
+    expect(india.byId('az_9')!.medicine.unitsPerPack, 1);
+    expect(india.byId('az_10')!.medicine.unitsPerPack, 15);
+  });
+
+  test('a syrup stored as 60 units per bottle is found and converted keeping the bottles', () {
+    final syrup = medicine('syr', name: 'Calpol Syrup', unitsPerPack: 60).copyWith(packSizeLabel: 'Bottle of 60 ml Syrup');
+    final strip = medicine('dolo');
+    expect(findPackSizeFixes([syrup, strip]).map((f) => f.medicine.id), ['syr']);
+    expect(convertPackUnits(23 * 60, 60, 1), 23);
+    expect(convertPackUnits(23 * 60 + 30, 60, 1), 24, reason: 'half a bottle rounds up');
+    expect(convertPackUnits(23 * 60 + 29, 60, 1), 23);
+    final fixed = syrup.copyWith(unitsPerPack: 1, previousUnitsPerPack: 60);
+    expect(fixed.unitsNowFor(120, 60), 2, reason: 'a bill from before the fix returns 2 bottles');
+    expect(fixed.unitsNowFor(2, 1), 2);
+    expect(strip.unitsNowFor(30, 15), 30);
   });
 }

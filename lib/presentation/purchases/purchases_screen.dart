@@ -288,6 +288,14 @@ class _ReceiveStockFormState extends ConsumerState<_ReceiveStockForm> {
             trailing: const Icon(PhosphorIconsRegular.caretRight),
           ),
         ),
+        if (medicine != null && medicine.unitsPerPack > 1 && PackUnits.isMeasured(medicine.packSizeLabel))
+          Padding(
+            padding: const EdgeInsets.only(top: Space.s),
+            child: Text(
+              'This bottle/tube is counted as ${medicine.unitsPerPack} units. Settings → Update medicines makes it 1 per bottle.',
+              style: text.bodySmall?.copyWith(color: AppColors.warning),
+            ),
+          ),
         const SizedBox(height: Space.l),
         Text('Batch', style: text.titleMedium),
         const SizedBox(height: Space.s),

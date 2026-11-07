@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:archive/archive.dart';
 
 import '../../domain/models/medicine.dart';
+import '../../domain/services/pack_units.dart';
 import '../../domain/models/schedule_type.dart';
 import 'global_catalogue_repository.dart' show CatalogueEntry;
 
@@ -113,7 +114,8 @@ class IndiaCatalogue {
 
   CatalogueEntry _entry(int i) {
     final f = _rows[i].split('\t');
-    final units = int.tryParse(f[5]) ?? 1;
+    // The source lists "bottle of 60 ml" as 60 units; a bottle is one unit.
+    final units = PackUnits.forCatalogue(f[4], int.tryParse(f[5]) ?? 1);
     final medicine = Medicine(
       id: f[0],
       storeId: '',

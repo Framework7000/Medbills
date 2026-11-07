@@ -29,6 +29,24 @@ class SupplierBillParser {
   ];
 
   static BillDraft parse(OcrPage page, Iterable<Medicine> medicines, {String ownGstin = ''}) {
+    // Read lying on its side (text running up or down the photo): every line
+    // overlaps every other, so the whole bill would come out as one row. Turn
+    // the boxes both ways and keep the reading that finds the most.
+    if (page.uprightScore < 0) {
+      final a = _parse(page.turned(clockwise: true), medicines, ownGstin);
+      final b = _parse(page.turned(clockwise: false), medicines, ownGstin);
+      return _score(a) >= _score(b) ? a : b;
+    }
+    return _parse(page, medicines, ownGstin);
+  }
+
+  static int _score(BillDraft d) =>
+      d.lines.length * 10 +
+      d.lines.where((l) => l.expiryMonth != null && l.batchNumber.isNotEmpty && l.packs > 0).length * 5 +
+      (d.invoiceNumber.isEmpty ? 0 : 3) +
+      (d.billTotalPaise == null ? 0 : 3);
+
+  static BillDraft _parse(OcrPage page, Iterable<Medicine> medicines, String ownGstin) {
     final rows = page.rows().map((r) => r.toUpperCase()).toList();
     final text = rows.join('\n');
     final own = ownGstin.trim().toUpperCase();
@@ -91,7 +109,12 @@ class SupplierBillParser {
     return name.split(' ').map((w) => w.length <= 1 ? w : w[0] + w.substring(1).toLowerCase()).join(' ');
   }
 
+  /// A real item row is one line of the table; anything this long is many
+  /// rows run together (a misread page), not one medicine.
+  static const maxItemRowLength = 220;
+
   static BillDraftLine? _parseItemRow(String row, Iterable<Medicine> medicines) {
+    if (row.length > maxItemRowLength) return null;
     final clean = row.replaceAllMapped(RegExp(r'(\d),(\d{3})'), (m) => '${m[1]}${m[2]}');
     // A row may carry both the manufacturing and the expiry month (MFG 01/25
     // EXP 12/27). The expiry is the one labelled EXP, else the later one —

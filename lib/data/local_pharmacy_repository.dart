@@ -16,6 +16,7 @@ import '../domain/services/stock_adjustment.dart';
 import '../domain/services/billing_calculator.dart';
 import '../domain/services/checkout_engine.dart';
 import '../domain/services/invoice_number.dart';
+import '../domain/services/master_corrections.dart';
 import '../domain/services/stock_receipt.dart';
 import 'pharmacy_repository.dart';
 import 'repositories/global_catalogue_repository.dart';
@@ -238,7 +239,8 @@ class LocalPharmacyRepository implements PharmacyRepository {
     final now = DateTime.now();
     for (final line in sale.lines) {
       final batch = _batches[line.batchId];
-      if (batch != null) _batches[batch.id] = batch.copyWith(quantity: batch.quantity + line.quantity);
+      final units = _medicines[line.medicineId]?.unitsNowFor(line.quantity, line.unitsPerPack) ?? line.quantity;
+      if (batch != null) _batches[batch.id] = batch.copyWith(quantity: batch.quantity + units);
     }
     final customer = sale.customerId == null ? null : _customers[sale.customerId];
     if (customer != null) {
@@ -353,7 +355,8 @@ class LocalPharmacyRepository implements PharmacyRepository {
     );
     for (final l in plan.lines) {
       final b = _batches[l.batchId];
-      if (b != null) _batches[b.id] = b.copyWith(quantity: b.quantity + l.quantity);
+      final units = _medicines[l.medicineId]?.unitsNowFor(l.quantity, l.unitsPerPack) ?? l.quantity;
+      if (b != null) _batches[b.id] = b.copyWith(quantity: b.quantity + units);
     }
     if (refundMode == RefundMode.udhaar && customer != null) {
       _customers[customer.id] =
@@ -454,6 +457,26 @@ class LocalPharmacyRepository implements PharmacyRepository {
     final batch = _batches[batchId];
     if (batch == null) throw const OperationException(['Batch not found.']);
     _batches[batchId] = batch.copyWith(isBlocked: blocked);
+    _notify();
+  }
+
+  @override
+  Future<void> changeUnitsPerPack(String medicineId, int newUnitsPerPack) async {
+    requireManager(actor, 'change a pack size');
+    if (newUnitsPerPack < 1) throw const OperationException(['Units per pack must be at least 1.']);
+    final medicine = _medicines[medicineId];
+    if (medicine == null) throw const OperationException(['Medicine not found.']);
+    final from = medicine.unitsPerPack;
+    if (from == newUnitsPerPack) return;
+    _medicines[medicineId] = medicine.copyWith(
+      unitsPerPack: newUnitsPerPack,
+      previousUnitsPerPack: from,
+      minStock: convertPackUnits(medicine.minStock, from, newUnitsPerPack),
+      updatedAt: DateTime.now(),
+    );
+    for (final b in _batches.values.where((b) => b.medicineId == medicineId).toList()) {
+      _batches[b.id] = b.copyWith(quantity: convertPackUnits(b.quantity, from, newUnitsPerPack));
+    }
     _notify();
   }
 

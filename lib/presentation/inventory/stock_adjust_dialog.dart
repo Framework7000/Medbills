@@ -92,11 +92,12 @@ class _StockAdjustDialogState extends ConsumerState<StockAdjustDialog> {
           const SizedBox(height: Space.m),
           Row(children: [
             IconButton.filledTonal(
+              visualDensity: VisualDensity.compact,
               tooltip: perPack > 1 ? 'One pack less' : 'One less',
               icon: const Icon(PhosphorIconsRegular.minus),
               onPressed: () => _set(units - perPack),
             ),
-            const SizedBox(width: Space.s),
+            const SizedBox(width: Space.xs),
             Expanded(
               child: TextField(
                 key: const ValueKey('adjust-packs'),
@@ -113,7 +114,7 @@ class _StockAdjustDialogState extends ConsumerState<StockAdjustDialog> {
             if (perPack > 1) ...[
               const SizedBox(width: Space.s),
               SizedBox(
-                width: 84,
+                width: 64,
                 child: TextField(
                   key: const ValueKey('adjust-loose'),
                   controller: _loose,
@@ -127,6 +128,7 @@ class _StockAdjustDialogState extends ConsumerState<StockAdjustDialog> {
             ],
             const SizedBox(width: Space.s),
             IconButton.filledTonal(
+              visualDensity: VisualDensity.compact,
               tooltip: perPack > 1 ? 'One pack more' : 'One more',
               icon: const Icon(PhosphorIconsRegular.plus),
               onPressed: () => _set(units + perPack),

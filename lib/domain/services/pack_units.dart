@@ -42,4 +42,19 @@ class PackUnits {
     if (loose == 0) return '$packs × $unitsPerPack';
     return '$packs × $unitsPerPack + $loose';
   }
+
+  static final _measured = RegExp(r'\d+(?:\.\d+)?\s*(?:ml|gm|g|mg|mcg|ltr|lt|l|kg|lb)\b', caseSensitive: false);
+
+  /// True for a pack sold by volume or weight ("bottle of 60 ml Syrup",
+  /// "tube of 20 gm Cream"): one bottle or tube is one unit, never 60.
+  static bool isMeasured(String label) => _measured.hasMatch(label);
+
+  /// Units per pack for a catalogue entry: a bottle/tube is 1; otherwise the
+  /// count in the label ("packet of 30 tablets" → 30), else [given].
+  static int forCatalogue(String label, int given) {
+    if (isMeasured(label)) return 1;
+    final fromText = fromLabel(label);
+    if (fromText > 1) return fromText;
+    return given < 1 ? 1 : given;
+  }
 }

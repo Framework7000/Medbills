@@ -57,4 +57,59 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  for (final size in const [Size(390, 844), Size(1366, 800)]) {
+    testWidgets('a line the shop doesn\'t stock yet is added as a new medicine and stays matched (${size.width.toInt()} wide)',
+        (tester) async {
+      tester.view.physicalSize = size * 2;
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(const ProviderScope(child: MedBillsApp()));
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(tester.element(find.byType(MaterialApp)));
+      final repo = container.read(repositoryProvider)!;
+      const text = 'NIBUWALE MEDICOS\nBill No R005320\n1  MELKOZYN SYRUP 200ML  260612  11/27  5  1  196.90  150.04  750.20';
+      final draft = SupplierBillParser.parse(OcrPage.fromText(text), const []);
+      expect(draft.lines.single.medicineId, isNull);
+      final scan = (await tester.runAsync(() => repo.createBillScan(draft: draft, ocrText: text)))!;
+      Navigator.of(tester.element(find.byType(Scaffold).first))
+          .push(MaterialPageRoute<void>(builder: (_) => BillReviewScreen(scanId: scan.id)));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('not matched'), findsOneWidget);
+
+      // Open the line and press Done without choosing: the list opens by itself.
+      await tester.tap(find.textContaining('not matched'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsWidgets);
+      expect(find.text('Search brand or generic'), findsOneWidget, reason: 'the medicine list opened');
+      await tester.tap(find.text('New medicine'));
+      await tester.pumpAndSettle();
+      // Only the name is known: that is enough (generic, maker and schedule can come later).
+      await tester.enterText(find.widgetWithText(TextFormField, 'Pack'), 'Bottle of 200 ml Syrup');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Use'));
+      // The line had everything else, so choosing the medicine finishes it.
+      await tester.pump();
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('not matched'), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      final meds = (await tester.runAsync(() => repo.watchMedicines().first))!;
+      final added = meds.singleWhere((m) => m.name.toUpperCase().contains('MELKOZYN'));
+      expect(added.unitsPerPack, 1, reason: 'a 200 ml bottle is one unit');
+
+      await tester.tap(find.text('Receive 1 lines into stock'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Receive'));
+      await tester.pump();
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+      final batch = (await tester.runAsync(() => repo.watchBatches().first))!.singleWhere((b) => b.medicineId == added.id);
+      expect(batch.quantity, 6, reason: '5 paid + 1 free bottles');
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

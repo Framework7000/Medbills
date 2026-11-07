@@ -37,10 +37,15 @@ List<Medicine> _knownMedicines(WidgetRef ref) {
   return [...store, ...catalogue];
 }
 
+/// Medicines chosen on a bill line that weren't in the store yet (picked from
+/// the full Indian list, or created new): kept so the line stays matched
+/// until the store copy arrives.
+final _pickedMedicinesProvider = StateProvider<Map<String, Medicine>>((ref) => const {});
+
 Medicine? _resolveMedicine(WidgetRef ref, String? id) {
   if (id == null) return null;
   final store = ref.read(stockIndexProvider).valueOrNull?[id]?.medicine;
-  return store ?? ref.read(catalogueProvider).byId(id)?.medicine;
+  return store ?? ref.read(_pickedMedicinesProvider)[id] ?? ref.read(catalogueProvider).byId(id)?.medicine;
 }
 
 /// Photograph (phone) or pick (computer) a supplier bill, read it on the
@@ -472,11 +477,24 @@ class _BillReviewScreenState extends ConsumerState<BillReviewScreen> {
     final draft = _draft!;
     final isNew = index >= draft.lines.length;
     final line = isNew ? const BillDraftLine(rawText: '(added by hand)') : draft.lines[index];
-    final result = await showDialog<BillDraftLine>(
+    final picked = await showDialog<({BillDraftLine line, Medicine medicine})>(
       context: context,
       builder: (_) => _LineDialog(line: line, medicine: _resolveMedicine(ref, line.medicineId)),
     );
-    if (result == null) return;
+    if (picked == null || !mounted) return;
+    final result = picked.line;
+    // A medicine not in the store yet is added to it now (with no stock), so
+    // the line stays matched here and on every other device.
+    final inStore = ref.read(stockIndexProvider).valueOrNull?.containsKey(picked.medicine.id) ?? false;
+    if (!inStore) {
+      ref.read(_pickedMedicinesProvider.notifier).update((m) => {...m, picked.medicine.id: picked.medicine});
+      try {
+        await ref.read(repositoryProvider)!.saveMedicine(picked.medicine);
+      } catch (_) {
+        // Not a manager: it is created when the stock is received.
+      }
+      if (!mounted) return;
+    }
     final lines = [...draft.lines];
     if (isNew) {
       lines.add(result);
@@ -956,16 +974,17 @@ class _LineDialogState extends State<_LineDialog> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(
-          onPressed: () {
+          onPressed: () async {
             if (_medicine == null) {
-              showMessage(context, 'Choose the medicine.', error: true);
-              return;
+              // Typing the name is not enough: open the list to pick it (or add it new).
+              await _chooseMedicine();
+              if (_medicine == null || !context.mounted) return;
             }
             if (!_formKey.currentState!.validate()) return;
             final expiry = parseMonthYear(_expiry.text)!;
             Navigator.pop(
               context,
-              widget.line.copyWith(
+              (medicine: _medicine!, line: widget.line.copyWith(
                 medicineId: _medicine!.id,
                 medicineName: _medicine!.name,
                 batchNumber: Batch.normaliseBatchNumber(_batch.text),
@@ -976,7 +995,7 @@ class _LineDialogState extends State<_LineDialog> {
                 ratePaise: parseRupeesToPaise(_rate.text),
                 mrpPaise: parseRupeesToPaise(_mrp.text),
                 include: true,
-              ),
+              )),
             );
           },
           child: const Text('Done'),

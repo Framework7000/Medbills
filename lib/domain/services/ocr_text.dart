@@ -39,6 +39,21 @@ class OcrPage {
     return score;
   }
 
+  /// The same reading with every box turned a quarter turn: [clockwise]
+  /// true turns the page right. Used when a bill was read lying on its side,
+  /// so its table rows line up again.
+  OcrPage turned({required bool clockwise}) {
+    if (lines.isEmpty) return this;
+    final maxX = lines.map((l) => l.right).reduce((a, b) => a > b ? a : b);
+    final maxY = lines.map((l) => l.bottom).reduce((a, b) => a > b ? a : b);
+    return OcrPage([
+      for (final l in lines)
+        clockwise
+            ? OcrLine(l.text, left: maxY - l.bottom, right: maxY - l.top, top: l.left, bottom: l.right)
+            : OcrLine(l.text, left: l.top, right: l.bottom, top: maxX - l.right, bottom: maxX - l.left),
+    ]);
+  }
+
   /// How much readable text there is (letters and digits), to compare two
   /// readings of the same photo turned different ways.
   int get readableChars => lines.fold(0, (s, l) => s + l.text.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').length);

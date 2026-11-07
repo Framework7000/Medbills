@@ -516,28 +516,33 @@ class _MasterCorrectionsTileState extends ConsumerState<_MasterCorrectionsTile> 
     if (medicines == null) return const SizedBox.shrink();
     final catalogue = ref.watch(catalogueProvider);
     final fixes = findMasterCorrections(medicines, (id) => catalogue.byId(id)?.medicine);
-    if (fixes.isEmpty) return const SizedBox.shrink();
+    final packs = findPackSizeFixes(medicines);
+    final total = {...fixes.map((f) => f.current.id), ...packs.map((p) => p.medicine.id)}.length;
+    if (total == 0) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: Space.s),
       child: Card(
         child: ListTile(
           leading: const Icon(PhosphorIconsRegular.arrowsClockwise, color: AppColors.danger),
-          title: Text('Update ${fixes.length} medicine${fixes.length == 1 ? '' : 's'}'),
-          subtitle: const Text('New GST rates (from 22 Sep 2025) and Schedule H1 corrections.'),
+          title: Text('Update $total medicine${total == 1 ? '' : 's'}'),
+          subtitle: Text([
+            if (fixes.isNotEmpty) 'New GST rates (from 22 Sep 2025) and Schedule H1 corrections.',
+            if (packs.isNotEmpty) 'Syrups, drops and creams counted as 1 per bottle/tube (not "× 60").',
+          ].join('\n')),
           trailing: _busy
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(PhosphorIconsRegular.caretRight),
-          onTap: _busy ? null : () => _review(fixes),
+          onTap: _busy ? null : () => _review(fixes, packs),
         ),
       ),
     );
   }
 
-  Future<void> _review(List<MasterCorrection> fixes) async {
+  Future<void> _review(List<MasterCorrection> fixes, List<PackSizeFix> packs) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Update ${fixes.length} medicines?'),
+        title: Text('Update ${fixes.length + packs.length} changes?'),
         content: SizedBox(
           width: 480,
           height: 360,
@@ -547,6 +552,12 @@ class _MasterCorrectionsTileState extends ConsumerState<_MasterCorrectionsTile> 
                 dense: true,
                 title: Text(f.current.name, overflow: TextOverflow.ellipsis),
                 subtitle: Text(f.summary),
+              ),
+            for (final p in packs)
+              ListTile(
+                dense: true,
+                title: Text(p.medicine.name, overflow: TextOverflow.ellipsis),
+                subtitle: Text('${p.summary}. Stock stays the same number of bottles/tubes.'),
               ),
           ]),
         ),
@@ -565,9 +576,14 @@ class _MasterCorrectionsTileState extends ConsumerState<_MasterCorrectionsTile> 
         await repo.saveMedicine(f.corrected);
         done++;
       }
-      if (mounted) showMessage(context, 'Updated $done medicines. Past bills are unchanged.');
+      // After the GST/schedule saves, so those can't put an old pack size back.
+      for (final p in packs) {
+        await repo.changeUnitsPerPack(p.medicine.id, p.newUnitsPerPack);
+        done++;
+      }
+      if (mounted) showMessage(context, 'Updated $done. Past bills are unchanged.');
     } catch (e) {
-      if (mounted) showMessage(context, 'Updated $done of ${fixes.length}. ${friendlyError(e)}', error: true);
+      if (mounted) showMessage(context, 'Updated $done of ${fixes.length + packs.length}. ${friendlyError(e)}', error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

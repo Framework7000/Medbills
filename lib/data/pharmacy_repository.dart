@@ -123,6 +123,11 @@ abstract class PharmacyRepository {
 
   Future<void> setBatchBlocked(String batchId, bool blocked);
 
+  /// Corrects how many units one pack holds (e.g. a syrup stored as 60 per
+  /// bottle → 1) and converts every batch's stock and the reorder level so
+  /// the number of packs stays the same. Managers only; in the audit trail.
+  Future<void> changeUnitsPerPack(String medicineId, int newUnitsPerPack);
+
   /// Fixes a received batch's expiry, received date, MRP or purchase price.
   /// Managers only; never changes the quantity; logged in the audit trail.
   Future<void> correctBatch(String batchId, BatchCorrection correction);

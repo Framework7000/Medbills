@@ -420,6 +420,43 @@ void contract(RepoFactory create, {required RepoFactory as}) {
     );
   });
 
+  test('a syrup stored as 60 per bottle is corrected to 1; old bills return bottles, not 60s', () async {
+    final syrup = medicine('syr', name: 'Calpol Syrup', unitsPerPack: 60, gstRate: 5).copyWith(packSizeLabel: 'Bottle of 60 ml Syrup', minStock: 120);
+    await repo.receiveStock(receipt(syrup, batchNumber: 'CS1', packs: 5, mrpPaise: 4500, costPaise: 3200)); // 300 "units"
+    final batchId = receipt(syrup, batchNumber: 'CS1').batchId;
+    Future<int> syrupStock() async => (await repo.watchBatches().first).firstWhere((b) => b.id == batchId).quantity;
+    final oldSale = await repo.checkout(CheckoutRequest(
+      lines: [CheckoutLineRequest(medicineId: 'syr', batchId: batchId, quantity: 120)], // 2 bottles
+      paymentMode: PaymentMode.cash,
+    ));
+    final toCancel = await repo.checkout(CheckoutRequest(
+      lines: [CheckoutLineRequest(medicineId: 'syr', batchId: batchId, quantity: 60)], // 1 bottle
+      paymentMode: PaymentMode.cash,
+    ));
+    expect(await syrupStock(), 120); // 2 bottles left
+
+    await expectLater(as(counter).changeUnitsPerPack('syr', 1), throwsA(isA<NotPermittedException>()));
+    final asOwner = as(owner);
+    await asOwner.changeUnitsPerPack('syr', 1);
+    expect(await syrupStock(), 2, reason: 'still 2 bottles');
+    final fixed = (await asOwner.watchMedicines().first).firstWhere((m) => m.id == 'syr');
+    expect(fixed.unitsPerPack, 1);
+    expect(fixed.minStock, 2);
+
+    await asOwner.returnSaleItems(saleId: oldSale.id, units: {0: 60}, refundMode: RefundMode.cash); // 1 bottle back
+    expect(await syrupStock(), 3);
+    await asOwner.cancelSale(toCancel.id, 'wrong item');
+    expect(await syrupStock(), 4);
+
+    // New bills sell bottles.
+    await asOwner.checkout(CheckoutRequest(
+      lines: [CheckoutLineRequest(medicineId: 'syr', batchId: batchId, quantity: 1)],
+      paymentMode: PaymentMode.cash,
+    ));
+    expect(await syrupStock(), 3);
+    expect((await asOwner.watchRecentSales().first).first.lines.single.lineTotalPaise, 4500);
+  });
+
   test('blocked batches cannot be sold until unblocked', () async {
     await repo.setBatchBlocked(doloBatchId, true);
     await expectLater(sell(1), throwsA(isA<CheckoutException>()));

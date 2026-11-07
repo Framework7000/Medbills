@@ -1,5 +1,6 @@
 import '../models/medicine.dart';
 import '../models/schedule_type.dart';
+import 'pack_units.dart';
 
 /// One medicine whose stored GST rate or schedule is out of date.
 class MasterCorrection {
@@ -59,3 +60,28 @@ int _strictness(ScheduleType s) => switch (s) {
       ScheduleType.scheduleX => 3,
       ScheduleType.unknown => -1,
     };
+
+
+/// A bottle, tube or jar stored as many units (its ml or grams, e.g. a 60 ml
+/// syrup as "× 60"): it should be one unit per pack.
+class PackSizeFix {
+  final Medicine medicine;
+  const PackSizeFix(this.medicine);
+
+  int get newUnitsPerPack => 1;
+
+  String get summary => 'Pack: ${medicine.unitsPerPack} units → 1 (${medicine.packSizeLabel})';
+}
+
+List<PackSizeFix> findPackSizeFixes(Iterable<Medicine> storeMedicines) => [
+      for (final m in storeMedicines)
+        if (m.unitsPerPack > 1 && PackUnits.isMeasured(m.packSizeLabel)) PackSizeFix(m),
+    ];
+
+/// [quantity] base units at [from] per pack, in base units at [to] per pack,
+/// rounded to the nearest unit (a part-used bottle counts as a bottle from
+/// half up).
+int convertPackUnits(int quantity, int from, int to) {
+  if (from == to || from < 1) return quantity;
+  return (quantity * to * 2 + from) ~/ (from * 2);
+}

@@ -70,7 +70,7 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
       genericName: _generic.text.trim(),
       manufacturer: _manufacturer.text.trim(),
       type: _category.text.trim(),
-      packSizeLabel: _pack.text.trim(),
+      packSizeLabel: _pack.text.trim().isEmpty ? (units > 1 ? 'Pack of $units' : '1 unit') : _pack.text.trim(),
       unitsPerPack: units,
       hsnCode: _hsn.text.trim(),
       gstRate: _gst,
@@ -96,8 +96,11 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
 
   @override
   Widget build(BuildContext context) {
-    Widget row(List<Widget> children) => LayoutBuilder(builder: (context, c) {
-          if (c.maxWidth < 360) {
+    // Side by side unless the screen is narrow. (Not a LayoutBuilder: a
+    // dialog measures its content first, which a LayoutBuilder can't answer.)
+    final narrow = MediaQuery.sizeOf(context).width < 480;
+    Widget row(List<Widget> children) => Builder(builder: (context) {
+          if (narrow) {
             return Column(children: [
               for (final child in children) Padding(padding: const EdgeInsets.only(bottom: Space.l), child: child),
             ]);
@@ -131,16 +134,16 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
               ),
             ]),
             row([
-              TextFormField(controller: _generic, decoration: const InputDecoration(labelText: 'Generic / composition'), validator: _required),
-              TextFormField(controller: _manufacturer, decoration: const InputDecoration(labelText: 'Manufacturer'), validator: _required),
+              // Optional: a medicine being received from a bill often has only its name.
+              TextFormField(controller: _generic, decoration: const InputDecoration(labelText: 'Generic / composition')),
+              TextFormField(controller: _manufacturer, decoration: const InputDecoration(labelText: 'Manufacturer')),
             ]),
             row([
               TextFormField(
                 controller: _pack,
-                decoration: const InputDecoration(labelText: 'Pack', hintText: 'Strip of 15'),
-                validator: _required,
+                decoration: const InputDecoration(labelText: 'Pack', hintText: 'Strip of 15 / Bottle 60 ml'),
                 onChanged: (v) {
-                  if (widget.isNew) _units.text = '${PackUnits.fromLabel(v)}';
+                  if (widget.isNew) _units.text = '${PackUnits.isMeasured(v) ? 1 : PackUnits.fromLabel(v)}';
                 },
               ),
               TextFormField(
@@ -160,8 +163,8 @@ class _MedicineEditorState extends ConsumerState<_MedicineEditor> {
                   for (final s in ScheduleType.values) DropdownMenuItem(value: s, child: Text(s.label)),
                 ],
                 onChanged: (v) => setState(() => _schedule = v ?? ScheduleType.unknown),
-                validator: (v) => v == ScheduleType.unknown ? 'Classify before selling' : null,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
+                // Not required to save or receive stock; an unclassified
+                // medicine just can't be sold yet (the note below says so).
               ),
               DropdownButtonFormField<double>(
                 initialValue: _gst,

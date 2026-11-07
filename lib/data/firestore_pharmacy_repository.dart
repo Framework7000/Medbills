@@ -17,6 +17,7 @@ import '../domain/services/stock_adjustment.dart';
 import '../domain/services/billing_calculator.dart';
 import '../domain/services/checkout_engine.dart';
 import '../domain/services/invoice_number.dart';
+import '../domain/services/master_corrections.dart';
 import '../domain/services/stock_receipt.dart';
 import 'pharmacy_repository.dart';
 
@@ -245,9 +246,15 @@ class FirestorePharmacyRepository implements PharmacyRepository {
         throw const OperationException(['Items from this bill were returned. Return the rest instead of cancelling.']);
       }
 
+      final medicines = <String, Medicine>{};
+      for (final id in sale.lines.map((l) => l.medicineId).toSet()) {
+        final snap = await tx.get(_medicines.doc(id));
+        if (snap.exists) medicines[id] = Medicine.fromMap(_read(snap));
+      }
       final returned = <String, int>{};
       for (final line in sale.lines) {
-        returned.update(line.batchId, (v) => v + line.quantity, ifAbsent: () => line.quantity);
+        final units = medicines[line.medicineId]?.unitsNowFor(line.quantity, line.unitsPerPack) ?? line.quantity;
+        returned.update(line.batchId, (v) => v + units, ifAbsent: () => units);
       }
       final batchQuantities = <String, int>{};
       for (final id in returned.keys) {
@@ -417,9 +424,15 @@ class FirestorePharmacyRepository implements PharmacyRepository {
       } on ReturnException catch (e) {
         throw OperationException(e.problems);
       }
+      final medicines = <String, Medicine>{};
+      for (final id in plan.lines.map((l) => l.medicineId).toSet()) {
+        final snap = await tx.get(_medicines.doc(id));
+        if (snap.exists) medicines[id] = Medicine.fromMap(_read(snap));
+      }
       final back = <String, int>{};
       for (final l in plan.lines) {
-        back.update(l.batchId, (v) => v + l.quantity, ifAbsent: () => l.quantity);
+        final units = medicines[l.medicineId]?.unitsNowFor(l.quantity, l.unitsPerPack) ?? l.quantity;
+        back.update(l.batchId, (v) => v + units, ifAbsent: () => units);
       }
       final quantities = <String, int>{};
       for (final id in back.keys) {
@@ -652,6 +665,43 @@ class FirestorePharmacyRepository implements PharmacyRepository {
       ..update(_batches.doc(batchId), {'isBlocked': blocked})
       ..set(_audit.doc(), _auditEntry(blocked ? 'batch_blocked' : 'batch_unblocked', batchId, batchId));
     await batch.commit();
+  }
+
+  @override
+  Future<void> changeUnitsPerPack(String medicineId, int newUnitsPerPack) async {
+    requireManager(actor, 'change a pack size');
+    if (newUnitsPerPack < 1) throw const OperationException(['Units per pack must be at least 1.']);
+    // Transactions can't query, so find the batch ids first, then read each
+    // inside the transaction before writing (Rule 3).
+    final ids = (await _batches.where('medicineId', isEqualTo: medicineId).get()).docs.map((d) => d.id).toList();
+    await _db.runTransaction<void>((tx) async {
+      final medSnap = await tx.get(_medicines.doc(medicineId));
+      if (!medSnap.exists) throw const OperationException(['Medicine not found.']);
+      final medicine = Medicine.fromMap(_read(medSnap));
+      final batches = <Batch>[];
+      for (final id in ids) {
+        final snap = await tx.get(_batches.doc(id));
+        if (snap.exists) batches.add(Batch.fromMap(_read(snap)));
+      }
+      final from = medicine.unitsPerPack;
+      if (from == newUnitsPerPack) return;
+      tx.update(_medicines.doc(medicineId), {
+        'unitsPerPack': newUnitsPerPack,
+        'previousUnitsPerPack': from,
+        'minStock': convertPackUnits(medicine.minStock, from, newUnitsPerPack),
+        'updatedAt': DateTime.now(),
+      });
+      final changes = <String>[];
+      for (final b in batches) {
+        final q = convertPackUnits(b.quantity, from, newUnitsPerPack);
+        if (q != b.quantity) {
+          tx.update(_batches.doc(b.id), {'quantity': q});
+          changes.add('${b.batchNumber} ${b.quantity}→$q');
+        }
+      }
+      tx.set(_audit.doc(), _auditEntry('pack_size_changed', medicineId,
+          '${medicine.name}: $from → $newUnitsPerPack per pack${changes.isEmpty ? '' : ' (${changes.join(', ')})'}'));
+    });
   }
 
   @override
