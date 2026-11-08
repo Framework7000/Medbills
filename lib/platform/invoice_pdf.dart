@@ -105,7 +105,6 @@ class InvoicePdf {
     final date = DateFormat('dd-MM-yyyy').format(inv.createdAt);
     final discounted = inv.lines.any((l) => l.discountPaise > 0);
     int lineGst(SaleLine l) => l.lineTotalPaise - BillingCalculator.taxableFromGross(l.lineTotalPaise, l.gstRate);
-    final totalQtyUnits = inv.lines.fold<int>(0, (s, l) => s + l.quantity);
 
     pw.Widget sectionTitle(String t) =>
         pw.Text(t, style: const pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold));
@@ -232,8 +231,8 @@ class InvoicePdf {
               '',
               'Total',
               '',
-              totalQtyUnits.toString(),
-              'units',
+              '${inv.lines.length} item${inv.lines.length == 1 ? '' : 's'}',
+              '',
               '',
               if (discounted) formatRupees(inv.lines.fold<int>(0, (s, l) => s + l.discountPaise)),
               formatRupees(inv.gstPaise),
@@ -274,7 +273,7 @@ class InvoicePdf {
           ),
           pw.SizedBox(width: 16),
           pw.SizedBox(
-            width: 190,
+            width: 210,
             child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.stretch, children: [
               if (inv.discountPaise > 0) ...[
                 _totalRow('MRP total', inv.mrpTotalPaise),
@@ -296,11 +295,23 @@ class InvoicePdf {
               ],
               pw.SizedBox(height: 14),
               pw.Text('For: ${store.name}', style: cell, textAlign: pw.TextAlign.center),
+              // Seal on the left, signature on the right over its edge, as a
+              // shop signs over its stamp; both stay readable.
               pw.SizedBox(
-                height: 72,
-                child: pw.Stack(alignment: pw.Alignment.center, children: [
-                  if (seal != null) pw.Opacity(opacity: 0.85, child: pw.Image(seal, height: 66, fit: pw.BoxFit.contain)),
-                  if (signature != null) pw.Image(signature, height: 44, fit: pw.BoxFit.contain),
+                height: 74,
+                child: pw.Stack(children: [
+                  if (seal != null)
+                    pw.Positioned(
+                      left: 0,
+                      top: 6,
+                      child: pw.Opacity(opacity: 0.8, child: pw.Image(seal, height: 60, width: 120, fit: pw.BoxFit.contain)),
+                    ),
+                  if (signature != null)
+                    pw.Positioned(
+                      right: 0,
+                      top: 0,
+                      child: pw.Image(signature, height: 64, width: 110, fit: pw.BoxFit.contain),
+                    ),
                 ]),
               ),
               pw.Container(height: 0.6, color: PdfColors.grey600),
