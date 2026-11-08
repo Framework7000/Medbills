@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 /// Text read from a photo (on-device OCR), independent of the OCR engine.
 class OcrLine {
   final String text;
@@ -65,7 +67,25 @@ class OcrPage {
   /// Lines regrouped into visual rows (a bill's table row is often read as
   /// several separate pieces), each row's pieces ordered left to right.
   List<String> rows() {
-    final sorted = [...lines]..sort((a, b) => a.centerY.compareTo(b.centerY));
+    // A bill photographed a little turned has its table rows running
+    // uphill: straighten the pieces first, or a medicine's name ends up on
+    // the row of the prices below it.
+    final slope = _slope();
+    final textHeight = _textHeight();
+    final placed = slope == 0
+        ? lines
+        : [
+            for (final l in lines)
+              () {
+                final cy = l.centerY - (l.left + l.right) / 2 * slope;
+                // A turned line's box is taller than its print; never below
+                // half a line of print (or the box itself, if smaller).
+                final floor = math.min(textHeight * 0.5, l.height);
+                final h = (l.height - (l.right - l.left) * slope.abs()).clamp(floor, l.height);
+                return OcrLine(l.text, left: l.left, right: l.right, top: cy - h / 2, bottom: cy + h / 2);
+              }(),
+          ];
+    final sorted = [...placed]..sort((a, b) => a.centerY.compareTo(b.centerY));
     final rows = <List<OcrLine>>[];
     for (final line in sorted) {
       final row = rows.isEmpty ? null : rows.last;
@@ -84,6 +104,50 @@ class OcrPage {
     return [
       for (final row in rows) (row..sort((a, b) => a.left.compareTo(b.left))).map((l) => l.text).join('  '),
     ];
+  }
+
+  /// Height of one line of print: the boxes of short pieces (figures,
+  /// codes), which a slight turn hardly makes taller.
+  double _textHeight() {
+    final short = [for (final l in lines) if (l.height > 0 && l.right - l.left < l.height * 6) l.height]..sort();
+    final all = [for (final l in lines) if (l.height > 0) l.height]..sort();
+    final pick = short.length >= 3 ? short : all;
+    return pick.isEmpty ? 0 : pick[pick.length ~/ 2];
+  }
+
+  /// How steeply the rows run (rise per unit across), found by trying
+  /// angles up to 12° either way and keeping the one that lines up the most
+  /// pieces side by side. 0 when the page is level or there is too little
+  /// to tell.
+  double _slope() {
+    if (lines.length < 6) return 0;
+    final h = _textHeight();
+    if (h <= 0) return 0;
+    int aligned(double slope) {
+      final ys = [for (final l in lines) l.centerY - (l.left + l.right) / 2 * slope];
+      var count = 0;
+      for (var i = 0; i < lines.length; i++) {
+        for (var j = 0; j < lines.length; j++) {
+          // Pieces side by side (not overlapping across) at the same height.
+          if (i == j || lines[i].right > lines[j].left) continue;
+          if ((ys[i] - ys[j]).abs() < h * 0.4) count++;
+        }
+      }
+      return count;
+    }
+
+    final level = aligned(0);
+    var best = 0.0, bestCount = level;
+    for (var tenths = -120; tenths <= 120; tenths += 5) {
+      if (tenths == 0) continue;
+      final slope = math.tan(tenths / 10 * math.pi / 180);
+      final count = aligned(slope);
+      if (count > bestCount) {
+        best = slope;
+        bestCount = count;
+      }
+    }
+    return bestCount >= level * 1.15 + 2 ? best : 0;
   }
 }
 

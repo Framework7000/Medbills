@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
 import '../domain/services/ocr_text.dart';
+import '../domain/services/photo_clean.dart';
 import 'device_features.dart';
 import 'photo_compress.dart';
 import 'text_reader.dart';
@@ -23,6 +24,25 @@ Uint8List? _upright((Uint8List, int) args) {
   return Uint8List.fromList(img.encodeJpg(image, quality: 90));
 }
 
+/// The upright photo with its lighting evened out (see [flattenLighting]),
+/// as a grey JPEG for a second reading.
+Uint8List? _cleaned(Uint8List jpeg) {
+  final image = img.decodeImage(jpeg);
+  if (image == null) return null;
+  final gray = Uint8List(image.width * image.height);
+  var i = 0;
+  for (final p in image) {
+    gray[i++] = ((p.r * 77 + p.g * 150 + p.b * 29) / 256).floor();
+  }
+  final flat = flattenLighting(gray, image.width, image.height);
+  final rgb = Uint8List(flat.length * 3);
+  for (var k = 0; k < flat.length; k++) {
+    rgb[k * 3] = rgb[k * 3 + 1] = rgb[k * 3 + 2] = flat[k];
+  }
+  final cleaned = img.Image.fromBytes(width: image.width, height: image.height, bytes: rgb.buffer, numChannels: 3);
+  return Uint8List.fromList(img.encodeJpg(cleaned, quality: 90));
+}
+
 Future<OcrPage?> _read(Uint8List jpeg, String tag) async {
   final file = File('${Directory.systemTemp.path}${Platform.pathSeparator}medbills_bill_${tag}_${DateTime.now().microsecondsSinceEpoch}.jpg');
   try {
@@ -35,10 +55,10 @@ Future<OcrPage?> _read(Uint8List jpeg, String tag) async {
   }
 }
 
-Future<({Uint8List? jpeg, OcrPage? page})> prepareBillPhoto(Uint8List bytes) async {
+Future<({Uint8List? jpeg, OcrPage? page, OcrPage? cleaned})> prepareBillPhoto(Uint8List bytes) async {
   final upright = await compute(_upright, (bytes, 0));
-  if (upright == null) return (jpeg: null, page: null);
-  if (!DeviceFeatures.textReading) return (jpeg: await compressPhoto(upright), page: null);
+  if (upright == null) return (jpeg: null, page: null, cleaned: null);
+  if (!DeviceFeatures.textReading) return (jpeg: await compressPhoto(upright), page: null, cleaned: null);
 
   var best = upright;
   var page = await _read(upright, '0');
@@ -55,5 +75,13 @@ Future<({Uint8List? jpeg, OcrPage? page})> prepareBillPhoto(Uint8List bytes) asy
       }
     }
   }
-  return (jpeg: await compressPhoto(best), page: page);
+  // A second reading of the same photo, cleaned up: a shadow, a dim corner
+  // or faint print the first reading lost often reads here. A failure only
+  // means there is no second reading.
+  OcrPage? cleaned;
+  try {
+    final clean = await compute(_cleaned, best);
+    if (clean != null) cleaned = await _read(clean, 'clean');
+  } catch (_) {}
+  return (jpeg: await compressPhoto(best), page: page, cleaned: cleaned);
 }

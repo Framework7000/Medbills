@@ -48,6 +48,7 @@ class _SmartCameraViewState extends State<_SmartCameraView> with WidgetsBindingO
   bool _reading = false; // one frame at a time; frames arriving meanwhile are dropped
   bool _torch = false;
   bool _capturing = false;
+  DateTime _lastTapFocus = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -259,6 +260,16 @@ class _SmartCameraViewState extends State<_SmartCameraView> with WidgetsBindingO
     _capturing = true;
     try {
       await _stopStream();
+      // Focus on the middle (where the guide puts the bill) just before the
+      // photo, so small print is sharp — unless the user just tapped to
+      // focus somewhere themselves.
+      if (camera.value.focusPointSupported && DateTime.now().difference(_lastTapFocus) > const Duration(seconds: 5)) {
+        try {
+          await camera.setFocusPoint(const Offset(0.5, 0.5));
+          if (camera.value.exposurePointSupported) await camera.setExposurePoint(const Offset(0.5, 0.5));
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+        } catch (_) {}
+      }
       final photo = await camera.takePicture();
       return photo.path;
     } catch (_) {
@@ -287,6 +298,7 @@ class _SmartCameraViewState extends State<_SmartCameraView> with WidgetsBindingO
     final camera = _camera;
     if (camera == null) return;
     final point = Offset(details.localPosition.dx / box.maxWidth, details.localPosition.dy / box.maxHeight);
+    _lastTapFocus = DateTime.now();
     try {
       await camera.setFocusPoint(point);
       await camera.setExposurePoint(point);

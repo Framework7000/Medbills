@@ -119,13 +119,20 @@ class SupplierBillParser {
           if (piece.replaceAll(RegExp(r'[^A-Z]'), '').length >= 5 &&
               !_notSupplier.any(piece.contains) &&
               !_gstin.hasMatch(piece) &&
-              !_address.hasMatch(piece))
+              !_address.hasMatch(piece) &&
+              _tableWords.where((w) => RegExp('\\b$w\\b').hasMatch(piece)).length < 3 &&
+              // An item row (figures, dates, a batch) is not a name either.
+              piece.replaceAll(RegExp(r'[^0-9]'), '').length * 5 <= piece.replaceAll(' ', '').length)
             piece.trim(),
     ];
     final name = head.where((r) => _supplierWords.any(r.contains)).firstOrNull ?? head.firstOrNull;
     if (name == null) return '';
     return name.split(' ').map((w) => w.length <= 1 ? w : w[0] + w.substring(1).toLowerCase()).join(' ');
   }
+
+  /// The item table's header row ("Description Pack Batch Exp Qty …") is
+  /// never the supplier's name.
+  static const _tableWords = ['DESCRIPTION', 'PARTICULARS', 'ITEM', 'PACK', 'BATCH', 'EXP', 'QTY', 'FREE', 'MRP', 'RATE', 'AMOUNT', 'HSN'];
 
   /// An address piece ("SHOP NO.89, GROUND FLOOR", "14, MAIN ROAD") is not a name.
   static final _address = RegExp(r'\b(SHOP|PLOT|FLOOR|ROAD|MARG|NAGAR|BAZAR|BAZAAR|STREET|COLONY|SECTOR|NEAR|OPP)\b|^\d|,.*,');
@@ -139,7 +146,11 @@ class SupplierBillParser {
   static BillDraftLine? _parseItemRow(String row, Iterable<Medicine> medicines,
       {bool gstColumn = false, bool? mrpBeforeRate}) {
     if (row.length > maxItemRowLength) return null;
-    final clean = row.replaceAllMapped(RegExp(r'(\d),(\d{3})'), (m) => '${m[1]}${m[2]}');
+    // Table borders read as brackets or bars ("[136.12 |5.00") are not part
+    // of any figure.
+    final clean = row
+        .replaceAll(RegExp(r'[\[\]{}|_]'), ' ')
+        .replaceAllMapped(RegExp(r'(\d),(\d{3})'), (m) => '${m[1]}${m[2]}');
     // A row may carry both the manufacturing and the expiry month (MFG 01/25
     // EXP 12/27). The expiry is the one labelled EXP, else the later one —
     // a medicine always expires after it was made.

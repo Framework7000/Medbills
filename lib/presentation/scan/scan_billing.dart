@@ -520,8 +520,11 @@ Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref, {St
 
   // Turned upright and read (a bill photographed on its side reads sideways).
   final prepared = await prepareBillPhoto(await photo.readAsBytes());
-  final page = prepared.page ?? await readTextFromPhoto(photo.path);
+  var page = prepared.page ?? await readTextFromPhoto(photo.path);
   if (!context.mounted) return null;
+  // A dim or shadowed photo may read only in its cleaned-up copy.
+  final cleaned = prepared.cleaned;
+  if ((page == null || page.isEmpty) && cleaned != null && !cleaned.isEmpty) page = cleaned;
   if ((page == null || page.isEmpty) && eInvoice == null) {
     return const ScanFeedback('No printed text found. Hold it flat, in good light, and try again.', ok: false);
   }
@@ -529,7 +532,9 @@ Future<ScanFeedback?> smartPhotoCapture(BuildContext context, WidgetRef ref, {St
   final ownGstin = ref.read(storeProvider).valueOrNull?.gstin ?? '';
 
   // A GST e-invoice QR in the photo settles it: this is a supplier bill.
-  if (eInvoice != null || classifyCapture(page!, medicines, ownGstin: ownGstin) == CaptureKind.supplierBill) {
+  if (eInvoice != null ||
+      classifyCapture(page!, medicines, ownGstin: ownGstin) == CaptureKind.supplierBill ||
+      (cleaned != null && classifyCapture(cleaned, medicines, ownGstin: ownGstin) == CaptureKind.supplierBill)) {
     if (DeviceFeatures.isPhone) {
       // The phone is the scanner: the bill goes to the counter computer
       // (which pops it up for review) and the camera stays open.

@@ -17,6 +17,7 @@ Future<OcrPage?> readTextFromPhoto(String path) async {
             top: line.boundingBox.top,
             right: line.boundingBox.right,
             bottom: line.boundingBox.bottom,
+            angle: line.angle ?? 0,
           ),
     ]);
   } finally {

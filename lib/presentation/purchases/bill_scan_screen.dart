@@ -13,6 +13,7 @@ import '../../domain/models/date_value.dart';
 import '../../domain/models/supplier_account.dart';
 import '../../domain/models/medicine.dart';
 import '../../domain/services/billing_calculator.dart';
+import '../../domain/services/bill_reading_merge.dart';
 import '../../domain/services/ocr_text.dart';
 import '../../domain/services/stock_receipt.dart';
 import '../../domain/services/supplier_bill_parser.dart';
@@ -97,7 +98,7 @@ Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file,
     EInvoiceCode? eInvoice,
     bool openReview = true,
     void Function(BillScan scan)? onSaved,
-    ({Uint8List? jpeg, OcrPage? page})? prepared}) async {
+    PreparedBillPhoto? prepared}) async {
   final repo = ref.read(repositoryProvider)!;
   final ownGstin = ref.read(storeProvider).valueOrNull?.gstin ?? '';
   final medicines = _knownMedicines(ref);
@@ -123,9 +124,13 @@ Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file,
     final ready = prepared ?? await prepareBillPhoto(await file.readAsBytes());
     final jpeg = ready.jpeg;
     final ocrPage = ready.page ?? page;
-    var draft = ocrPage == null || ocrPage.isEmpty
-        ? const BillDraft()
-        : SupplierBillParser.parse(ocrPage, medicines, ownGstin: ownGstin);
+    // The photo is read twice — as taken, and cleaned up (shadows, faint
+    // print) — and the two readings are put together: a field one missed is
+    // filled from the other, and a figure they disagree on is left blank.
+    var draft = combineBillReadings([
+      for (final p in [ocrPage, ready.cleaned])
+        if (p != null && !p.isEmpty) SupplierBillParser.parse(p, medicines, ownGstin: ownGstin),
+    ]);
     // A line the shop's own list didn't match: look its name up in the
     // full Indian medicine list so the review shows the proper name
     // (still marked "not matched" until the pharmacist confirms it).
