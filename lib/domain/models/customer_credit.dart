@@ -3,7 +3,7 @@ import 'date_value.dart';
 enum CreditEntryType {
   creditSale('Credit sale'),
   paymentReceived('Payment received'),
-  saleCancelled('Sale cancelled');
+  saleCancelled('Cancelled / returned');
 
   const CreditEntryType(this.label);
   final String label;

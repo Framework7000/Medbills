@@ -23,6 +23,9 @@ class StockReceipt {
   final DateTime? billDate;
   /// The bill's printed grand total, when known (scanned bills).
   final int? billTotalPaise;
+  /// The distributor this goes to when already known (a renamed distributor
+  /// keeps its id); otherwise worked out from [supplierName].
+  final String? knownDistributorId;
 
   const StockReceipt({
     required this.medicine,
@@ -39,10 +42,12 @@ class StockReceipt {
     this.payment = PurchasePayment.credit,
     this.billDate,
     this.billTotalPaise,
+    this.knownDistributorId,
   });
 
   String get distributorName => Distributor.tidyName(supplierName);
-  String get distributorId => Distributor.idFor(supplierName);
+  String get distributorId =>
+      Distributor.idFor(supplierName).isEmpty ? '' : (knownDistributorId ?? Distributor.idFor(supplierName));
 
   String supplierBillId(DateTime now) =>
       SupplierBill.idFor(distributorId, supplierInvoiceNumber.trim(), billDate ?? now);

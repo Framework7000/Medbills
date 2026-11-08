@@ -345,6 +345,7 @@ class _BillReviewScreenState extends ConsumerState<BillReviewScreen> {
       payment: draft.payment == 'cash' ? PurchasePayment.cash : PurchasePayment.credit,
       billDate: draft.invoiceDate,
       billTotalPaise: draft.billTotalPaise,
+      knownDistributorId: Distributor.resolveId(draft.supplierName, ref.read(distributorsProvider).valueOrNull ?? const []),
     );
     final batch = ref.read(batchesProvider).valueOrNull?.where((b) => b.id == receipt.batchId).firstOrNull;
     problems.addAll(receipt.validate(now: DateTime.now(), existing: batch));

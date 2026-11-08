@@ -36,6 +36,21 @@ class Distributor {
 
   static String tidyName(String name) => name.trim().replaceAll(RegExp(r'\s+'), ' ');
 
+  /// The id for a typed name: an existing distributor with that name keeps
+  /// its own id (it may have been renamed, so its id came from an older
+  /// name); otherwise the id the name gives.
+  static String resolveId(String name, Iterable<Distributor> existing) {
+    final id = idFor(name);
+    if (id.isEmpty) return id;
+    for (final d in existing) {
+      if (d.id == id) return id;
+    }
+    for (final d in existing) {
+      if (idFor(d.name) == id) return d.id;
+    }
+    return id;
+  }
+
   Distributor copyWith({String? name, String? phone, String? gstin, int? creditDays}) => Distributor(
         id: id,
         storeId: storeId,

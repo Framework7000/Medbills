@@ -179,6 +179,7 @@ class _ReceiveStockFormState extends ConsumerState<_ReceiveStockForm> {
       supplierInvoiceNumber: _supplierInvoice.text,
       payment: _payment,
       billDate: DateTime(_billDate.year, _billDate.month, _billDate.day),
+      knownDistributorId: Distributor.resolveId(_supplier.text, ref.read(distributorsProvider).valueOrNull ?? const []),
     );
     final problems = receipt.validate(now: DateTime.now());
     if (problems.isNotEmpty) {

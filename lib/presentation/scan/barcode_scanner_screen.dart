@@ -242,7 +242,10 @@ class _ScannerScreenState extends State<_ScannerScreen> {
       String? path;
       if (_useSmartCamera) {
         path = await _camera?.takePhoto();
-        if (path == null) return const ScanFeedback('Could not take the photo — try again.', ok: false);
+        if (path == null) {
+          _guide.reset(); // let it try again by itself
+          return const ScanFeedback('Could not take the photo — try again.', ok: false);
+        }
       }
       return widget.onCapturePhoto!(path);
     }, isCapture: true);
@@ -423,7 +426,10 @@ class _ScannerScreenState extends State<_ScannerScreen> {
                         ),
                       )
                     else
-                      Center(child: _GuidePill(hint: _advice?.hint ?? CaptureHint.pointAtBill)),
+                      const SizedBox.shrink(),
+                    // The live instruction stays on screen, under the last result.
+                    const SizedBox(height: Space.s),
+                    Center(child: _GuidePill(hint: _advice?.hint ?? CaptureHint.pointAtBill)),
                     const SizedBox(height: Space.l),
                     // One button: photograph a pack (or a bill, if it wasn't
                     // taken by itself). The ring fills as a bill gets ready.

@@ -247,4 +247,24 @@ void main() {
     expect(fixed.unitsNowFor(2, 1), 2);
     expect(strip.unitsNowFor(30, 15), 30);
   });
+
+  test('a dose strength or a counted strip is never taken for a bottle size', () {
+    expect(PackUnits.isMeasured('10 Tablets (500mg)'), isFalse);
+    expect(PackUnits.isMeasured('Strip of 10 tablets 5 ml'), isFalse);
+    expect(PackUnits.isMeasured('Bottle of 60 ml Syrup'), isTrue);
+    expect(PackUnits.isMeasured('Tube 20g'), isTrue);
+    final strip = medicine('amox', unitsPerPack: 10).copyWith(packSizeLabel: '10 Capsules (500mg)');
+    expect(findPackSizeFixes([strip]), isEmpty);
+  });
+
+  test('a renamed distributor keeps getting its bills under the new name and the old', () {
+    final renamed = Distributor(id: 'd_shree', storeId: storeId, name: 'Shree Ganesh Pharma', createdAt: now);
+    expect(Distributor.resolveId('Shree Ganesh Pharma', [renamed]), 'd_shree');
+    expect(Distributor.resolveId('  shree ', [renamed]), 'd_shree');
+    expect(Distributor.resolveId('Mahaveer Agencies', [renamed]), Distributor.idFor('Mahaveer Agencies'));
+    final r = receipt(medicine('dolo'), supplierName: 'Shree Ganesh Pharma', knownDistributorId: 'd_shree');
+    expect(r.distributorId, 'd_shree');
+    expect(receipt(medicine('dolo'), supplierName: '', knownDistributorId: 'd_shree').distributorId, '',
+        reason: 'no supplier named: no bill');
+  });
 }

@@ -69,6 +69,7 @@ StockReceipt receipt(
   PurchasePayment payment = PurchasePayment.credit,
   DateTime? billDate,
   int? billTotalPaise,
+  String? knownDistributorId,
 }) {
   return StockReceipt(
     medicine: medicine,
@@ -84,5 +85,6 @@ StockReceipt receipt(
     payment: payment,
     billDate: billDate,
     billTotalPaise: billTotalPaise,
+    knownDistributorId: knownDistributorId,
   );
 }

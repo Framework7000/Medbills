@@ -80,7 +80,7 @@ class _SupplierBillDialogState extends ConsumerState<_SupplierBillDialog> {
   Future<void> _save({bool remove = false}) async {
     final repo = ref.read(repositoryProvider)!;
     final name = Distributor.tidyName(_name.text);
-    final distributorId = Distributor.idFor(name);
+    final distributorId = Distributor.resolveId(name, ref.read(distributorsProvider).valueOrNull ?? const []);
     final amount = parseRupeesToPaise(_amount.text);
     if (!remove && (amount == null || amount <= 0)) {
       setState(() => _error = 'Enter the bill amount.');
@@ -284,7 +284,7 @@ class _SupplierPaymentDialogState extends ConsumerState<_SupplierPaymentDialog> 
   Future<void> _save({bool remove = false}) async {
     final repo = ref.read(repositoryProvider)!;
     final name = Distributor.tidyName(_name.text);
-    final id = Distributor.idFor(name);
+    final id = Distributor.resolveId(name, ref.read(distributorsProvider).valueOrNull ?? const []);
     final amount = parseRupeesToPaise(_amount.text);
     if (id.isEmpty) {
       setState(() => _error = 'Enter who was paid.');
@@ -347,7 +347,7 @@ class _SupplierPaymentDialogState extends ConsumerState<_SupplierPaymentDialog> 
     final text = Theme.of(context).textTheme;
     const gap = SizedBox(height: Space.m);
     final ledger = ref.watch(supplierLedgerProvider).valueOrNull;
-    final account = ledger?.accounts[Distributor.idFor(_name.text)];
+    final account = ledger?.accounts[Distributor.resolveId(_name.text, ref.watch(distributorsProvider).valueOrNull ?? const [])];
     final unpaid = account?.unpaid ?? const <BillBalance>[];
     return AlertDialog(
       title: Text(p == null ? 'Pay distributor / MR' : 'Edit payment'),
@@ -459,7 +459,7 @@ class _DistributorDialogState extends ConsumerState<_DistributorDialog> {
     // Renaming keeps the same distributor (and its bills); a new one gets
     // the id its name gives.
     final next = (d ??
-            Distributor(id: Distributor.idFor(name), storeId: repo.storeId, name: name, createdAt: DateTime.now()))
+            Distributor(id: Distributor.resolveId(name, ref.read(distributorsProvider).valueOrNull ?? const []), storeId: repo.storeId, name: name, createdAt: DateTime.now()))
         .copyWith(
       name: name,
       phone: _phone.text.trim(),
