@@ -11,6 +11,7 @@ FrameText bill({
   int rows = 20,
   double gap = 60,
   double luma = 140,
+  double glare = 0,
   double angle = 0,
   double dx = 0,
   double dy = 0,
@@ -20,6 +21,7 @@ FrameText bill({
     width: 1080,
     height: 1920,
     meanLuma: luma,
+    glare: glare,
     lines: [
       for (var i = 0; i < rows; i++)
         OcrLine(
@@ -92,7 +94,15 @@ void main() {
         reason: 'a bill on its side is fine — it is turned afterwards');
     // Light.
     expect(CaptureGuide().update(bill(luma: 40)).hint, CaptureHint.moreLight);
-    expect(CaptureGuide().update(bill(luma: 245)).hint, CaptureHint.tooBright);
+    expect(CaptureGuide().update(bill(glare: 0.12)).hint, CaptureHint.tooBright);
+    expect(CaptureGuide().update(bill(glare: 0.032)).hint, CaptureHint.tooBright,
+        reason: 'a lamp reflection on part of the bill');
+    expect(CaptureGuide().update(bill(luma: 195, glare: 0.015)).hint, isNot(CaptureHint.tooBright),
+        reason: 'a brightly lit bill with a few white specks is fine');
+    expect(CaptureGuide().update(bill(luma: 225)).hint, isNot(CaptureHint.tooBright),
+        reason: 'a white bill filling the picture is bright, not glare');
+    // A wide bill across an upright phone, print too small: turn the phone.
+    expect(CaptureGuide().update(bill(left: 20, width: 1040, lineHeight: 14, gap: 26, top: 700)).hint, CaptureHint.turnSideways);
   });
 
   test('a pack or a far-away bill is told apart from a bill up close', () {

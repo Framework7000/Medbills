@@ -231,6 +231,23 @@ GROSS TOTAL : 663.96''');
 
       expect(draft.billTotalPaise, 66396);
     });
+
+    test('a misread rate is worked out from the amount, never swapped with the MRP', () {
+      // OCR turned the rate 18.27 into "1S)27." — "24.10" (the MRP) must not
+      // become the rate. Rate = amount ÷ quantity; the MRP stays the MRP.
+      final page = OcrPage.fromText('''
+Sr Description Pack Batch Exp Qty Free MRP Rate GST% Amount
+ib FLAGYL 400 TAB 15S FG0048 08/27 5 0 24.10 1S)27. 5.00 91.35)
+3 ACORTIL SYP 100ML AC0310 03/28 3 1 42.24 33.80 5.00 101.40''');
+      final draft = SupplierBillParser.parse(page, medicines);
+      expect(draft.lines, hasLength(2));
+      final flagyl = draft.lines[0];
+      expect((flagyl.packs, flagyl.ratePaise, flagyl.mrpPaise), (5, 1827, 2410));
+      expect(flagyl.medicineName, startsWith('FLAGYL'), reason: 'the misread serial "ib" is not part of the name');
+      final acortil = draft.lines[1];
+      expect(acortil.medicineName, 'ACORTIL SYP 100ML', reason: 'the name stops before the batch');
+      expect((acortil.packs, acortil.freePacks, acortil.ratePaise, acortil.mrpPaise), (3, 1, 3380, 4224));
+    });
   });
 
   test('a photo lying on its side is recognised from the text direction', () {

@@ -10,6 +10,7 @@ enum CaptureHint {
   packSeen('Pack found — show its barcode, or tap the white button'),
   billFound('Bill found — bring the camera closer'),
   moveCloser('Move closer — the print is too small'),
+  turnSideways('Turn the phone sideways — the bill is wide'),
   moveBack('Move back — fit the whole bill in the picture'),
   centre('Move the bill to the middle of the screen'),
   straighten('Hold the phone straight over the bill'),
@@ -31,8 +32,10 @@ class FrameText {
   final double height;
   final List<OcrLine> lines;
   final double meanLuma;
+  /// Share of the picture that is burnt-out white (glare), 0..1.
+  final double glare;
 
-  const FrameText({required this.width, required this.height, required this.lines, required this.meanLuma});
+  const FrameText({required this.width, required this.height, required this.lines, required this.meanLuma, this.glare = 0});
 }
 
 /// A rectangle in 0..1 of the frame (left, top, right, bottom).
@@ -69,8 +72,9 @@ class CaptureGuide {
   /// Darker than this (average 0–255) is too dark to read small print.
   static const minLuma = 70.0;
 
-  /// Brighter than this is washed out (glare on glossy paper).
-  static const maxLuma = 235.0;
+  /// More of the picture than this burnt-out white is glare (a white bill
+  /// filling the picture is bright, but not burnt out).
+  static const maxGlare = 0.025;
 
   /// The bill's text should fill at least this much of the picture.
   static const minArea = 0.28;
@@ -193,13 +197,16 @@ class CaptureGuide {
     var progress = 0.25;
     if (f.meanLuma < minLuma) {
       hint = CaptureHint.moreLight;
-    } else if (f.meanLuma > maxLuma) {
+    } else if (f.glare > maxGlare) {
       hint = CaptureHint.tooBright;
     } else if (area.top < edge || area.bottom > 1 - edge || (area.left < edge && area.right > 1 - edge)) {
       hint = CaptureHint.moveBack;
       progress = 0.5;
     } else if (area.area < minArea || lineHeight < minLineHeight) {
-      hint = CaptureHint.moveCloser;
+      // A wide bill already filling the width of an upright phone can't come
+      // closer without being cut off: turning the phone makes it bigger.
+      final wideBill = area.width * f.width > area.height * f.height * 1.2;
+      hint = f.height > f.width && area.width > 0.8 && wideBill ? CaptureHint.turnSideways : CaptureHint.moveCloser;
       progress = 0.4;
     } else if ((area.cx - 0.5).abs() > offCentre || (area.cy - 0.5).abs() > offCentre) {
       hint = CaptureHint.centre;

@@ -72,9 +72,22 @@ class SupplierBillParser {
 
     final dl = _drugLicence.firstMatch(text)?.group(1)?.trim().replaceAll(RegExp(r'[ ,]+$'), '') ?? '';
 
+    // A table header naming a GST % column.
+    final gstColumn = rows.any((r) =>
+        RegExp(r'GST\s*%|GST\s*RATE|\bGST\b').hasMatch(r) && (r.contains('RATE') || r.contains('MRP')) && r.contains('QTY'));
+    // Which comes first in the table header, MRP or the rate (null: no header seen).
+    bool? mrpBeforeRate;
+    for (final r in rows) {
+      final mrpAt = RegExp(r'\bMRP\b').firstMatch(r)?.start;
+      final rateAt = RegExp(r'\b(?:RATE|PTR)\b').firstMatch(r)?.start;
+      if (mrpAt != null && rateAt != null && r.contains('QTY')) {
+        mrpBeforeRate = mrpAt < rateAt;
+        break;
+      }
+    }
     final lines = <BillDraftLine>[];
     for (final row in rows) {
-      final line = _parseItemRow(row, medicines);
+      final line = _parseItemRow(row, medicines, gstColumn: gstColumn, mrpBeforeRate: mrpBeforeRate);
       if (line != null) lines.add(line);
     }
 
@@ -98,22 +111,33 @@ class SupplierBillParser {
   }
 
   static String _supplierName(List<String> rows) {
-    final head = rows.take(8).where((r) {
-      final letters = r.replaceAll(RegExp(r'[^A-Z]'), '');
-      return letters.length >= 5 && !_notSupplier.any(r.contains) && !_gstin.hasMatch(r);
-    }).toList();
-    final named = head.where((r) => _supplierWords.any(r.contains)).firstOrNull ?? head.firstOrNull;
-    if (named == null) return '';
-    // Keep the name part of the row, not trailing columns.
-    final name = named.split(RegExp(r'\s{2,}')).first.trim();
+    // A bill's top row often carries the name and "TAX INVOICE" side by
+    // side, so each column piece of a row is judged on its own.
+    final head = [
+      for (final r in rows.take(8))
+        for (final piece in r.split(RegExp(r'\s{2,}')))
+          if (piece.replaceAll(RegExp(r'[^A-Z]'), '').length >= 5 &&
+              !_notSupplier.any(piece.contains) &&
+              !_gstin.hasMatch(piece) &&
+              !_address.hasMatch(piece))
+            piece.trim(),
+    ];
+    final name = head.where((r) => _supplierWords.any(r.contains)).firstOrNull ?? head.firstOrNull;
+    if (name == null) return '';
     return name.split(' ').map((w) => w.length <= 1 ? w : w[0] + w.substring(1).toLowerCase()).join(' ');
   }
+
+  /// An address piece ("SHOP NO.89, GROUND FLOOR", "14, MAIN ROAD") is not a name.
+  static final _address = RegExp(r'\b(SHOP|PLOT|FLOOR|ROAD|MARG|NAGAR|BAZAR|BAZAAR|STREET|COLONY|SECTOR|NEAR|OPP)\b|^\d|,.*,');
 
   /// A real item row is one line of the table; anything this long is many
   /// rows run together (a misread page), not one medicine.
   static const maxItemRowLength = 220;
 
-  static BillDraftLine? _parseItemRow(String row, Iterable<Medicine> medicines) {
+  static const _gstRates = {0, 250, 500, 600, 900, 1200, 1400, 1800, 2800};
+
+  static BillDraftLine? _parseItemRow(String row, Iterable<Medicine> medicines,
+      {bool gstColumn = false, bool? mrpBeforeRate}) {
     if (row.length > maxItemRowLength) return null;
     final clean = row.replaceAllMapped(RegExp(r'(\d),(\d{3})'), (m) => '${m[1]}${m[2]}');
     // A row may carry both the manufacturing and the expiry month (MFG 01/25
@@ -150,26 +174,26 @@ class SupplierBillParser {
     final nameTokens = guess == null ? <String>{} : normaliseOcr(guess.name).split(' ').toSet();
     final beforeTokens = before.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
     String batch = '';
-    // Most bills print the batch just before the expiry — check there first.
-    for (final t in beforeTokens.reversed.take(4)) {
-      final token = t.replaceAll(RegExp(r'^[^A-Z0-9]+|[^A-Z0-9]+$'), '');
-      if (_looksLikeBatch(token) && !nameTokens.contains(token)) {
-        batch = token;
-        break;
-      }
-    }
-    // Some print it right after the item name/pack instead, with the
-    // quantity, MRP, rate and amount columns between it and the expiry —
-    // scan the rest of the row for it.
-    if (batch.isEmpty) {
-      for (final t in beforeTokens) {
+    String? findBatch(Iterable<String> tokens, {required bool mixedOnly}) {
+      for (final t in tokens) {
         final token = t.replaceAll(RegExp(r'^[^A-Z0-9]+|[^A-Z0-9]+$'), '');
-        if (_looksLikeBatch(token) && !nameTokens.contains(token)) {
-          batch = token;
-          break;
-        }
+        if (!_looksLikeBatch(token) || nameTokens.contains(token)) continue;
+        // Letters and digits together (TB7752) is far likelier a batch than
+        // a bare number, which may be a misread price.
+        if (mixedOnly && !RegExp(r'[A-Z]').hasMatch(token)) continue;
+        return token;
       }
+      return null;
     }
+    // Most bills print the batch just before the expiry — check there first;
+    // some print it right after the item name/pack, with quantity and
+    // price columns between it and the expiry — then scan the whole row.
+    final nearExpiry = beforeTokens.reversed.take(4).toList();
+    batch = findBatch(nearExpiry, mixedOnly: true) ??
+        findBatch(beforeTokens, mixedOnly: true) ??
+        findBatch(nearExpiry, mixedOnly: false) ??
+        findBatch(beforeTokens, mixedOnly: false) ??
+        '';
 
     // The quantity/price columns start right after the batch — never before
     // it, which matters when the item name itself has a bare number in it
@@ -197,8 +221,13 @@ class SupplierBillParser {
 
     // An item row needs a medicine guess (confident or not — the pharmacist
     // confirms it either way) or at least batch + expiry, and a quantity.
+    // A numbered table row with a batch and prices is an item too, even when
+    // its expiry was misread — the pharmacist fills that in.
+    final numbered = RegExp(r'^\s*\d{1,3}\s+[A-Z]').hasMatch(clean);
+    final prices = RegExp(r'\d+\.\d{2}').allMatches(numberSource).length;
     final looksLikeItem = (guess != null && (expiry != null || batch.isNotEmpty)) ||
-        (expiry != null && batch.isNotEmpty);
+        (expiry != null && batch.isNotEmpty) ||
+        (numbered && batch.isNotEmpty && prices >= 2);
     if (!looksLikeItem || numbers.isEmpty) return null;
 
     var index = 0;
@@ -217,13 +246,73 @@ class SupplierBillParser {
         }
       }
     }
-    final money = numbers.skip(index).map((n) => parseRupeesToPaise(n)!).where((p) => p > 0).toList();
-    final priced = _pickRateAndMrp(money, qty);
+    var money = numbers.skip(index).map((n) => parseRupeesToPaise(n)!).where((p) => p > 0).toList();
+    // The bill has a GST % column: 5.00 / 12.00 / 18.00 in a row is that
+    // rate, not a price (as long as two other figures remain).
+    if (gstColumn) {
+      final withoutRates = money.where((p) => !_gstRates.contains(p)).toList();
+      if (withoutRates.length >= 2) money = withoutRates;
+    }
+    var priced = _pickRateAndMrp(money, qty, mrpBeforeRate: mrpBeforeRate);
+
+    // Check the quantity against the amount column: quantity × rate is the
+    // line amount (with or without GST). A misread quantity (an expiry read
+    // as "727") is replaced by the one that adds up; a missing one is worked
+    // out from amount ÷ rate when that is a whole number.
+    if (priced.rate > 0) {
+      bool addsUp(int q) => q > 0 && money.any((m) => const [1.0, 1.05, 1.12, 1.18].any((f) {
+            final expected = q * priced.rate * f;
+            return (m - expected).abs() <= expected * 0.02 + 50;
+          }));
+      if (!addsUp(qty)) {
+        final ints = [for (final n in numbers) if (!n.contains('.') || n.endsWith('.00')) double.parse(n).round()];
+        final found = ints.indexWhere((q) => q <= maxPacksPerLine && addsUp(q));
+        if (found >= 0) {
+          qty = ints[found];
+          free = found + 1 < ints.length && ints[found + 1] <= qty ? ints[found + 1] : 0;
+        } else if (qty == 0) {
+          for (final m in money.where((m) => m > priced.rate)) {
+            final q = m / priced.rate;
+            if (q <= maxPacksPerLine && (q - q.round()).abs() < 0.02) {
+              qty = q.round();
+              break;
+            }
+          }
+        }
+        // The rate and MRP were chosen for the old quantity; choose again.
+        priced = _pickRateAndMrp(money, qty, mrpBeforeRate: mrpBeforeRate);
+      }
+    }
+    // The pair found sits in the wrong column order for this bill (the real
+    // rate was misread, so the MRP was taken as the rate and some other
+    // figure as the MRP): the rate is the line amount ÷ quantity, as long as
+    // the MRP column then makes sense with it.
+    if (qty > 0 && mrpBeforeRate != null && priced.rate > 0 && priced.mrp > 0 &&
+        (money.indexOf(priced.mrp) < money.indexOf(priced.rate)) != mrpBeforeRate) {
+      final amount = money.last;
+      final rate = (amount / qty).round();
+      final mrp = money
+          .take(money.length - 1)
+          .where((m) => m > rate && (m - rate) / m >= 0.08 && (m - rate) / m <= 0.45)
+          .firstOrNull;
+      if (mrp != null) priced = (rate: rate, mrp: mrp);
+    }
+    // No rate/MRP pair found, but a figure × quantity is the amount: that
+    // figure is the rate (the MRP is left for the pharmacist).
+    if (priced.rate == 0 && qty > 0) {
+      for (final r in money) {
+        if (money.any((m) => m != r && (m - r * qty).abs() <= r * qty * 0.02 + 50)) {
+          final mrp = money.where((m) => m > r && m <= r * 4 && (m - r * qty).abs() > r * qty * 0.02 + 50).firstOrNull ?? 0;
+          priced = (rate: r, mrp: mrp);
+          break;
+        }
+      }
+    }
 
     return BillDraftLine(
       rawText: row,
       medicineId: medicine?.id,
-      medicineName: medicine?.name ?? guess?.name ?? _leadingWords(clean),
+      medicineName: medicine?.name ?? guess?.name ?? _leadingWords(clean, batch),
       batchNumber: batch,
       expiryMonth: expiry?.month,
       expiryYear: expiry?.year,
@@ -259,7 +348,7 @@ class SupplierBillParser {
   /// Picks purchase rate and MRP (both per pack) from the row's money
   /// columns: MRP is above the rate (but not absurdly), and a column equal to
   /// quantity × rate (with or without GST) confirms the pair.
-  static ({int rate, int mrp}) _pickRateAndMrp(List<int> values, int qty) {
+  static ({int rate, int mrp}) _pickRateAndMrp(List<int> values, int qty, {bool? mrpBeforeRate}) {
     if (values.isEmpty) return (rate: 0, mrp: 0);
     if (values.length == 1) return (rate: 0, mrp: values.first);
     var best = (rate: 0, mrp: 0);
@@ -270,6 +359,10 @@ class SupplierBillParser {
         if (i == j) continue;
         final mrp = values[i], rate = values[j];
         if (rate <= 0 || mrp < rate || mrp > rate * 4) continue;
+        // The line amount (quantity × rate) is never the MRP.
+        if (qty > 1 && const [1.0, 1.05, 1.12, 1.18].any((f) => (mrp - qty * rate * f).abs() <= qty * rate * f * 0.01 + 5)) {
+          continue;
+        }
         var score = 0;
         if (qty > 0) {
           final amount = qty * rate;
@@ -283,7 +376,8 @@ class SupplierBillParser {
         }
         if (percents.contains(mrp)) score -= 3;
         if (percents.contains(rate)) score -= 3;
-        if (i < j) score += 1; // MRP column usually comes first
+        // MRP column usually comes first, unless this bill's header says otherwise.
+        if ((mrpBeforeRate ?? true) ? i < j : j < i) score += 1;
         final margin = (mrp - rate) / mrp;
         if (margin >= 0.08 && margin <= 0.45) score += 2;
         if (score > bestScore) {
@@ -295,8 +389,15 @@ class SupplierBillParser {
     return best;
   }
 
-  static String _leadingWords(String row) {
-    final m = RegExp(r'[A-Z][A-Z0-9\-]*(?:\s+[A-Z0-9][A-Z0-9\-]*){0,3}').firstMatch(row);
+  /// The item's name when no medicine matched: the first few words, up to
+  /// the batch number, without a serial number misread as letters ("1" read
+  /// as "IB", "I", "L|").
+  static String _leadingWords(String row, [String batch = '']) {
+    var text = row;
+    final batchAt = batch.isEmpty ? -1 : text.indexOf(batch);
+    if (batchAt > 0) text = text.substring(0, batchAt);
+    text = text.replaceFirst(RegExp(r'^\s*[IL|!J][A-Z]?[.;:)|]?\s+(?=[A-Z]{3})'), '');
+    final m = RegExp(r'[A-Z][A-Z0-9\-]*(?:\s+[A-Z0-9][A-Z0-9\-]*){0,3}').firstMatch(text);
     return m == null ? '' : m.group(0)!.trim();
   }
 }

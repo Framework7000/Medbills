@@ -154,11 +154,13 @@ class _SmartCameraViewState extends State<_SmartCameraView> with WidgetsBindingO
         final result = await reader.processImage(input);
         final meta = input.metadata!;
         final sideways = meta.rotation == InputImageRotation.rotation90deg || meta.rotation == InputImageRotation.rotation270deg;
+        final light = _light(image);
         if (mounted) {
           onText(FrameText(
             width: sideways ? meta.size.height : meta.size.width,
             height: sideways ? meta.size.width : meta.size.height,
-            meanLuma: _meanLuma(image),
+            meanLuma: light.mean,
+            glare: light.glare,
             lines: [
               for (final block in result.blocks)
                 for (final line in block.lines)
@@ -179,27 +181,31 @@ class _SmartCameraViewState extends State<_SmartCameraView> with WidgetsBindingO
     }
   }
 
-  /// Average brightness 0–255 from a sample of the frame's pixels.
-  static double _meanLuma(CameraImage image) {
+  /// Average brightness 0–255 and the share of burnt-out white (glare),
+  /// from a sample of the frame's pixels.
+  static ({double mean, double glare}) _light(CameraImage image) {
     final bytes = image.planes.first.bytes;
-    if (bytes.isEmpty) return 0;
-    var sum = 0, n = 0;
+    if (bytes.isEmpty) return (mean: 0, glare: 0);
+    var sum = 0, n = 0, burnt = 0;
+    void add(int y) {
+      sum += y;
+      n++;
+      if (y >= 250) burnt++;
+    }
     if (Platform.isIOS) {
       // BGRA: 4 bytes a pixel.
       for (var i = 0; i + 2 < bytes.length; i += 4 * 97) {
-        sum += (bytes[i] * 29 + bytes[i + 1] * 150 + bytes[i + 2] * 77) >> 8;
-        n++;
+        add((bytes[i] * 29 + bytes[i + 1] * 150 + bytes[i + 2] * 77) >> 8);
       }
     } else {
       // NV21: the first width × height bytes are the brightness (Y) plane.
       final y = image.width * image.height;
       final end = y < bytes.length ? y : bytes.length;
       for (var i = 0; i < end; i += 97) {
-        sum += bytes[i];
-        n++;
+        add(bytes[i]);
       }
     }
-    return n == 0 ? 0 : sum / n;
+    return n == 0 ? (mean: 0.0, glare: 0.0) : (mean: sum / n, glare: burnt / n);
   }
 
   static const _orientations = {

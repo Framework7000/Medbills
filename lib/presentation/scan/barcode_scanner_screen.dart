@@ -762,6 +762,7 @@ class _GuidePill extends StatelessWidget {
         CaptureHint.packSeen => PhosphorIconsRegular.barcode,
         CaptureHint.billFound || CaptureHint.moveCloser => PhosphorIconsRegular.magnifyingGlassPlus,
         CaptureHint.moveBack => PhosphorIconsRegular.arrowsOut,
+        CaptureHint.turnSideways => PhosphorIconsRegular.deviceRotate,
         CaptureHint.centre => PhosphorIconsRegular.crosshair,
         CaptureHint.straighten => PhosphorIconsRegular.deviceMobile,
         CaptureHint.holdSteady => PhosphorIconsRegular.handPalm,
