@@ -5,8 +5,10 @@ class OcrLine {
   final double top;
   final double right;
   final double bottom;
+  /// How far the line is turned from level, in degrees (0 = straight).
+  final double angle;
 
-  const OcrLine(this.text, {this.left = 0, this.top = 0, this.right = 0, this.bottom = 0});
+  const OcrLine(this.text, {this.left = 0, this.top = 0, this.right = 0, this.bottom = 0, this.angle = 0});
 
   double get height => bottom - top;
   double get centerY => (top + bottom) / 2;

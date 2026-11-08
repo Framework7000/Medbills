@@ -6,8 +6,8 @@ import 'package:nuskha_pms/presentation/scan/scan_billing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// The phone's Smart Scan is one full-screen camera: a close button, the
-/// "where scans go" chip and the torch on top, the round shutter and Done
-/// at the bottom — nothing else, at every common Android phone size.
+/// "where scans go" chip and the torch on top, one live instruction and the
+/// round shutter at the bottom — nothing else, at every common Android size.
 void main() {
   const sizes = {
     'small Android (360×640)': Size(360, 640),
@@ -41,8 +41,8 @@ void main() {
         expect(find.byTooltip('Close'), findsOneWidget);
         expect(find.byTooltip('Torch'), findsOneWidget);
         expect(find.bySemanticsLabel('Photograph a pack or a bill'), findsOneWidget); // the one shutter
-        expect(find.byTooltip('Done'), findsOneWidget);
-        expect(find.text('Any code reads by itself · ● for a pack or bill'), findsOneWidget);
+        expect(find.byTooltip('Done'), findsNothing, reason: 'Close is enough');
+        expect(find.text('Point the camera at the bill or the medicine pack'), findsOneWidget);
         // No settings panel under the picture any more.
         expect(find.byType(SegmentedButton<ScanMode>), findsNothing);
         expect(tester.takeException(), isNull); // no overflow

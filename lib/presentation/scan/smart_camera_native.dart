@@ -5,7 +5,10 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
+import '../../domain/services/capture_guide.dart';
+import '../../domain/services/ocr_text.dart';
 import '../../platform/code_reader_native.dart' show packCodeFormats;
 import '../../platform/device_features.dart';
 import 'smart_camera.dart';
@@ -16,14 +19,16 @@ Widget buildSmartCamera({
   required void Function(String code) onCode,
   required void Function(SmartCameraHandle handle) onReady,
   required Widget Function(String message) onError,
+  void Function(FrameText frame)? onText,
 }) =>
-    _SmartCameraView(onCode: onCode, onReady: onReady, onError: onError);
+    _SmartCameraView(onCode: onCode, onReady: onReady, onError: onError, onText: onText);
 
 class _SmartCameraView extends StatefulWidget {
-  const _SmartCameraView({required this.onCode, required this.onReady, required this.onError});
+  const _SmartCameraView({required this.onCode, required this.onReady, required this.onError, this.onText});
   final void Function(String code) onCode;
   final void Function(SmartCameraHandle handle) onReady;
   final Widget Function(String message) onError;
+  final void Function(FrameText frame)? onText;
 
   @override
   State<_SmartCameraView> createState() => _SmartCameraViewState();
@@ -32,6 +37,12 @@ class _SmartCameraView extends StatefulWidget {
 class _SmartCameraViewState extends State<_SmartCameraView> with WidgetsBindingObserver implements SmartCameraHandle {
   CameraController? _camera;
   final _scanner = BarcodeScanner(formats: packCodeFormats);
+  TextRecognizer? _textReader;
+  DateTime _lastTextRead = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// How often a live frame is read for text (guidance only — the photo
+  /// itself is read in full afterwards).
+  static const _textEvery = Duration(milliseconds: 650);
   String? _error;
   bool _streaming = false;
   bool _reading = false; // one frame at a time; frames arriving meanwhile are dropped
@@ -52,6 +63,7 @@ class _SmartCameraViewState extends State<_SmartCameraView> with WidgetsBindingO
     _camera = null;
     unawaited(camera?.dispose());
     unawaited(_scanner.close());
+    unawaited(_textReader?.close());
     super.dispose();
   }
 
@@ -135,11 +147,59 @@ class _SmartCameraViewState extends State<_SmartCameraView> with WidgetsBindingO
       final codes = await _scanner.processImage(input);
       final raw = codes.map((c) => c.rawValue?.trim()).whereType<String>().where((v) => v.isNotEmpty).firstOrNull;
       if (raw != null && mounted) widget.onCode(raw);
+      final onText = widget.onText;
+      if (onText != null && !_capturing && DateTime.now().difference(_lastTextRead) >= _textEvery) {
+        _lastTextRead = DateTime.now();
+        final reader = _textReader ??= TextRecognizer(script: TextRecognitionScript.latin);
+        final result = await reader.processImage(input);
+        final meta = input.metadata!;
+        final sideways = meta.rotation == InputImageRotation.rotation90deg || meta.rotation == InputImageRotation.rotation270deg;
+        if (mounted) {
+          onText(FrameText(
+            width: sideways ? meta.size.height : meta.size.width,
+            height: sideways ? meta.size.width : meta.size.height,
+            meanLuma: _meanLuma(image),
+            lines: [
+              for (final block in result.blocks)
+                for (final line in block.lines)
+                  OcrLine(line.text,
+                      left: line.boundingBox.left,
+                      top: line.boundingBox.top,
+                      right: line.boundingBox.right,
+                      bottom: line.boundingBox.bottom,
+                      angle: line.angle ?? 0),
+            ],
+          ));
+        }
+      }
     } catch (_) {
       // A frame that can't be read is skipped; the next one is along shortly.
     } finally {
       _reading = false;
     }
+  }
+
+  /// Average brightness 0–255 from a sample of the frame's pixels.
+  static double _meanLuma(CameraImage image) {
+    final bytes = image.planes.first.bytes;
+    if (bytes.isEmpty) return 0;
+    var sum = 0, n = 0;
+    if (Platform.isIOS) {
+      // BGRA: 4 bytes a pixel.
+      for (var i = 0; i + 2 < bytes.length; i += 4 * 97) {
+        sum += (bytes[i] * 29 + bytes[i + 1] * 150 + bytes[i + 2] * 77) >> 8;
+        n++;
+      }
+    } else {
+      // NV21: the first width × height bytes are the brightness (Y) plane.
+      final y = image.width * image.height;
+      final end = y < bytes.length ? y : bytes.length;
+      for (var i = 0; i < end; i += 97) {
+        sum += bytes[i];
+        n++;
+      }
+    }
+    return n == 0 ? 0 : sum / n;
   }
 
   static const _orientations = {

@@ -6,6 +6,7 @@ import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../domain/services/capture_guide.dart';
 import '../theme.dart';
 import 'smart_camera.dart';
 import '../widgets/common.dart' show friendlyError;
@@ -137,6 +138,26 @@ class _ScannerScreenState extends State<_ScannerScreen> {
   /// runs on a phone; otherwise [_controller]'s barcode scanner is used.
   bool get _useSmartCamera => widget.onCapturePhoto != null && smartCameraAvailable;
   SmartCameraHandle? _camera;
+
+  // Live guidance: what the camera sees, and the one instruction it gives.
+  final _guide = CaptureGuide();
+  CaptureAdvice? _advice;
+  Size? _frameSize;
+
+  void _onFrameText(FrameText frame) {
+    if (!mounted) return;
+    if (_busy) return;
+    final advice = _guide.update(frame);
+    setState(() {
+      _advice = advice;
+      _frameSize = Size(frame.width, frame.height);
+    });
+    // A whole, steady, readable bill: photograph it without a tap.
+    if (advice.capture) {
+      unawaited(HapticFeedback.lightImpact());
+      unawaited(_onCapture());
+    }
+  }
 
   // The 3-second undo window after a send.
   ScanFeedback? _undoable;
@@ -283,7 +304,6 @@ class _ScannerScreenState extends State<_ScannerScreen> {
   /// a bill. Where results go is one small chip at the top; the result of
   /// each scan floats over the bottom of the picture.
   Widget _smartCameraLayout(BuildContext context) {
-    final text = Theme.of(context).textTheme;
     final feedback = _feedback;
     Widget roundButton(IconData icon, String tooltip, VoidCallback onPressed) => Material(
       color: Colors.black45,
@@ -301,6 +321,7 @@ class _ScannerScreenState extends State<_ScannerScreen> {
         children: [
           buildSmartCamera(
             onCode: _onCode,
+            onText: _onFrameText,
             onReady: (camera) => _camera = camera,
             onError: (message) => Center(
               child: Padding(
@@ -313,7 +334,19 @@ class _ScannerScreenState extends State<_ScannerScreen> {
               ),
             ),
           ),
-          const IgnorePointer(child: Center(child: _AimFrame())),
+          // The text the camera has found, boxed: green when it's good to go.
+          IgnorePointer(
+            child: _advice?.area == null || _frameSize == null
+                ? const Center(child: _AimFrame())
+                : CustomPaint(
+                    size: Size.infinite,
+                    painter: _DetectedBox(
+                      area: _advice!.area!,
+                      frame: _frameSize!,
+                      good: !_advice!.hint.isProblem,
+                    ),
+                  ),
+          ),
           if (_busy)
             Center(
               child: Column(
@@ -390,42 +423,15 @@ class _ScannerScreenState extends State<_ScannerScreen> {
                         ),
                       )
                     else
-                      Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: Space.m, vertical: Space.s),
-                          decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
-                          child: Text(
-                            'Any code reads by itself · ● for a pack or bill',
-                            style: text.bodySmall?.copyWith(color: Colors.white),
-                          ),
-                        ),
-                      ),
+                      Center(child: _GuidePill(hint: _advice?.hint ?? CaptureHint.pointAtBill)),
                     const SizedBox(height: Space.l),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: _count == 0
-                                ? const SizedBox.shrink()
-                                : Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: Space.m, vertical: Space.s),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black54,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text('$_count done', style: text.labelLarge?.copyWith(color: Colors.white)),
-                                  ),
-                          ),
-                        ),
-                        _ShutterButton(onPressed: _busy ? null : _onCapture),
-                        Expanded(
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: roundButton(PhosphorIconsRegular.check, 'Done', () => Navigator.of(context).pop()),
-                          ),
-                        ),
-                      ],
+                    // One button: photograph a pack (or a bill, if it wasn't
+                    // taken by itself). The ring fills as a bill gets ready.
+                    Center(
+                      child: _ShutterButton(
+                        onPressed: _busy ? null : _onCapture,
+                        progress: _advice?.isBill == true ? _advice!.progress : 0,
+                      ),
                     ),
                   ],
                 ),
@@ -688,8 +694,10 @@ class _ConfirmBurstState extends State<_ConfirmBurst> with SingleTickerProviderS
 
 /// The round shutter of the in-app camera, like the system camera's.
 class _ShutterButton extends StatelessWidget {
-  const _ShutterButton({required this.onPressed});
+  const _ShutterButton({required this.onPressed, this.progress = 0});
   final VoidCallback? onPressed;
+  /// 0..1: a ring around the button fills as a bill gets ready to capture.
+  final double progress;
 
   @override
   Widget build(BuildContext context) {
@@ -701,17 +709,122 @@ class _ShutterButton extends StatelessWidget {
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 150),
           opacity: onPressed == null ? 0.4 : 1,
-          child: Container(
-            width: 76,
-            height: 76,
-            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 4)),
-            padding: const EdgeInsets.all(5),
-            child: const DecoratedBox(decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white)),
+          child: SizedBox(
+            width: 84,
+            height: 84,
+            child: Stack(alignment: Alignment.center, children: [
+              if (progress > 0)
+                SizedBox(
+                  width: 84,
+                  height: 84,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(end: progress),
+                    duration: const Duration(milliseconds: 300),
+                    builder: (context, v, _) => CircularProgressIndicator(
+                      value: v,
+                      strokeWidth: 5,
+                      color: v >= 0.75 ? AppColors.accent : Colors.amber,
+                      backgroundColor: Colors.white24,
+                    ),
+                  ),
+                ),
+              Container(
+                width: 70,
+                height: 70,
+                decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 4)),
+                padding: const EdgeInsets.all(5),
+                child: const DecoratedBox(decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white)),
+              ),
+            ]),
           ),
         ),
       ),
     );
   }
+}
+
+/// The one instruction for the person holding the phone, in a pill that is
+/// amber while something needs fixing and green once it's right.
+class _GuidePill extends StatelessWidget {
+  const _GuidePill({required this.hint});
+  final CaptureHint hint;
+
+  static IconData _icon(CaptureHint h) => switch (h) {
+        CaptureHint.pointAtBill || CaptureHint.stillLooking => PhosphorIconsRegular.scan,
+        CaptureHint.moreLight => PhosphorIconsRegular.flashlight,
+        CaptureHint.tooBright => PhosphorIconsRegular.sun,
+        CaptureHint.packSeen => PhosphorIconsRegular.barcode,
+        CaptureHint.billFound || CaptureHint.moveCloser => PhosphorIconsRegular.magnifyingGlassPlus,
+        CaptureHint.moveBack => PhosphorIconsRegular.arrowsOut,
+        CaptureHint.centre => PhosphorIconsRegular.crosshair,
+        CaptureHint.straighten => PhosphorIconsRegular.deviceMobile,
+        CaptureHint.holdSteady => PhosphorIconsRegular.handPalm,
+        CaptureHint.ready || CaptureHint.captured => PhosphorIconsRegular.checkCircle,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final good = !hint.isProblem;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      child: Container(
+        key: ValueKey(hint),
+        padding: const EdgeInsets.symmetric(horizontal: Space.l, vertical: Space.m),
+        decoration: BoxDecoration(
+          color: good ? AppColors.accent.withValues(alpha: 0.92) : const Color(0xE6333333),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: good ? Colors.white : Colors.amber, width: 1.5),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(_icon(hint), color: good ? Colors.white : Colors.amber, size: 22),
+          const SizedBox(width: Space.s),
+          Flexible(
+            child: Text(
+              hint.message,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Draws a box around the text the camera found, mapped from the frame onto
+/// the preview (which fills the screen like the system camera: cover).
+class _DetectedBox extends CustomPainter {
+  _DetectedBox({required this.area, required this.frame, required this.good});
+  final NormRect area;
+  final Size frame;
+  final bool good;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (frame.width <= 0 || frame.height <= 0) return;
+    final scale = max(size.width / frame.width, size.height / frame.height);
+    final shown = Size(frame.width * scale, frame.height * scale);
+    final dx = (size.width - shown.width) / 2, dy = (size.height - shown.height) / 2;
+    final rect = Rect.fromLTRB(
+      dx + area.left * shown.width - 8,
+      dy + area.top * shown.height - 8,
+      dx + area.right * shown.width + 8,
+      dy + area.bottom * shown.height + 8,
+    );
+    final color = good ? AppColors.accent : Colors.amber;
+    canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(12)),
+        Paint()..color = color.withValues(alpha: 0.12));
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(12)),
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_DetectedBox old) => old.area != area || old.good != good || old.frame != frame;
 }
 
 /// Corner marks showing where to hold a code — light enough not to hide the
