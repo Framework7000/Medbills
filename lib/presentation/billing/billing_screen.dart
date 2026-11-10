@@ -531,11 +531,21 @@ Future<SaleInvoice?> openBillEditor(BuildContext context, WidgetRef ref, SaleInv
     for (final s in (ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{}).values)
       s.medicine.id: s.medicine,
   };
-  final customer = sale.customerId == null
-      ? null
-      : (ref.read(customersProvider).valueOrNull ?? const <CustomerCredit>[])
-          .where((c) => c.id == sale.customerId)
-          .firstOrNull;
+  // An udhaar bill must open with its account, or saving it would quietly
+  // turn it into a cash bill.
+  CustomerCredit? customer;
+  if (sale.customerId != null) {
+    final all = await ref
+        .read(customersProvider.future)
+        .timeout(const Duration(seconds: 8), onTimeout: () => const <CustomerCredit>[]);
+    customer = all.where((c) => c.id == sale.customerId).firstOrNull;
+    if (!context.mounted) return null;
+    if (customer == null) {
+      showMessage(context, 'The udhaar account of this bill could not be loaded. Check the internet and try again.',
+          error: true);
+      return null;
+    }
+  }
   return Navigator.of(context).push<SaleInvoice>(MaterialPageRoute(
     fullscreenDialog: true,
     builder: (_) => ProviderScope(
@@ -930,6 +940,9 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
     // Keep the fields in step when the cart is cleared or a credit customer chosen.
     if (_name.text != cart.customerName) _name.text = cart.customerName;
     if (_phone.text != cart.customerPhone) _phone.text = cart.customerPhone;
+    if ((parseRupeesToPaise(_cash.text) ?? 0) != cart.cashPaise) {
+      _cash.text = cart.cashPaise > 0 ? _rupeesText(cart.cashPaise) : '';
+    }
     final udhaarEnabled = ref.watch(storeProvider).valueOrNull?.udhaarEnabled ?? false;
     final credit = udhaarEnabled && cart.paymentMode == PaymentMode.credit;
     final busy = widget.busy || _localBusy;

@@ -10,7 +10,7 @@ import {
   assertFails,
 } from '@firebase/rules-unit-testing';
 import {
-  doc, setDoc, updateDoc, getDoc, collection, Timestamp,
+  doc, setDoc, updateDoc, getDoc, collection, Timestamp, writeBatch,
 } from 'firebase/firestore';
 
 const STORE = 'store_primary';
@@ -204,6 +204,31 @@ await check('cancelling without a reason fails', () =>
     status: 'cancelled', cancellationReason: '', cancelledAt: Timestamp.now(),
     cancelledBy: 'owner-uid', cancelledByName: 'Owner',
   })));
+await check('a manager edits a bill: old copy cancelled as edited, corrected copy saved, same number', async () => {
+  await setDoc(doc(owner, `stores/${STORE}/sales/sale-edit`), { ...saleBase, id: 'sale-edit', createdBy: 'owner-uid' });
+  const batch = writeBatch(pharm);
+  batch.update(doc(pharm, `stores/${STORE}/sales/sale-edit`), {
+    status: 'cancelled', cancellationReason: 'Edited — replaced by the corrected bill', cancelledAt: Timestamp.now(),
+    cancelledBy: 'pharm-uid', cancelledByName: 'Pharmacist',
+  });
+  batch.set(doc(pharm, `stores/${STORE}/sales/sale-edit-2`), {
+    ...saleBase, id: 'sale-edit-2', createdBy: 'pharm-uid', paymentMode: 'split', cashPaise: 40, upiPaise: 60,
+    revisionOf: 'sale-edit', editedAt: Timestamp.now(), editedByName: 'Pharmacist',
+  });
+  return assertSucceeds(batch.commit());
+});
+await check('counterStaff cannot edit a bill (cannot cancel the old copy)', async () => {
+  await setDoc(doc(owner, `stores/${STORE}/sales/sale-edit-3`), { ...saleBase, id: 'sale-edit-3', createdBy: 'owner-uid' });
+  const batch = writeBatch(counter);
+  batch.update(doc(counter, `stores/${STORE}/sales/sale-edit-3`), {
+    status: 'cancelled', cancellationReason: 'Edited — replaced by the corrected bill', cancelledAt: Timestamp.now(),
+    cancelledBy: 'counter-uid', cancelledByName: 'Counter',
+  });
+  batch.set(doc(counter, `stores/${STORE}/sales/sale-edit-4`), {
+    ...saleBase, id: 'sale-edit-4', createdBy: 'counter-uid', revisionOf: 'sale-edit-3',
+  });
+  return assertFails(batch.commit());
+});
 await check('sales are never deleted', () =>
   assertFails((async () => { const { deleteDoc } = await import('firebase/firestore'); return deleteDoc(doc(owner, `stores/${STORE}/sales/sale-1`)); })()));
 
