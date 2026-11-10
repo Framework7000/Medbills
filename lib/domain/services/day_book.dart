@@ -98,7 +98,8 @@ class DayBook {
     }
 
     for (final s in sales) {
-      if (!_within(s.createdAt, from, to)) continue;
+      // An edited bill's old copy is neither a sale nor a cancellation.
+      if (!_within(s.createdAt, from, to) || s.isReplaced) continue;
       for (final f in [total, day(s.createdAt)]) {
         if (s.isCancelled) {
           f.cancelledBills++;
@@ -110,7 +111,10 @@ class DayBook {
         f.discountPaise += s.discountPaise;
         f.gstPaise += s.gstPaise;
         f.costPaise += s.costPaise;
-        f.salesByMode.update(s.paymentMode, (v) => v + s.payablePaise, ifAbsent: () => s.payablePaise);
+        for (final mode in PaymentMode.values) {
+          final paid = s.paidBy(mode);
+          if (paid != 0) f.salesByMode.update(mode, (v) => v + paid, ifAbsent: () => paid);
+        }
       }
     }
     final periodReturns = returns.where((r) => _within(r.createdAt, from, to)).toList()

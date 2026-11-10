@@ -16,6 +16,7 @@ import '../domain/services/batch_correction.dart';
 import '../domain/services/stock_adjustment.dart';
 import '../domain/services/billing_calculator.dart';
 import '../domain/services/checkout_engine.dart';
+import '../domain/services/sale_edit.dart';
 import '../domain/services/invoice_number.dart';
 import '../domain/services/master_corrections.dart';
 import '../domain/services/stock_receipt.dart';
@@ -195,6 +196,8 @@ class FirestorePharmacyRepository implements PharmacyRepository {
         grossPaise: plan.summary.grossPaise,
         payablePaise: plan.summary.payablePaise,
         billDiscountPaise: request.billDiscountPaise,
+        cashPaise: CheckoutEngine.splitOf(request, plan.summary.payablePaise).cash,
+        upiPaise: CheckoutEngine.splitOf(request, plan.summary.payablePaise).upi,
         prescription: plan.lines.any((l) => l.scheduleType.requiresRegisterEntry) ? request.prescription : null,
       );
 
@@ -300,6 +303,129 @@ class FirestorePharmacyRepository implements PharmacyRepository {
         );
       }
       tx.set(_audit.doc(), _auditEntry('sale_cancelled', saleId, '${sale.invoiceNumber}: $trimmed'));
+    });
+  }
+
+  @override
+  Future<SaleInvoice> editSale(String saleId, CheckoutRequest request) async {
+    requireManager(actor, 'edit a bill');
+    final newRef = _sales.doc();
+    return _db.runTransaction<SaleInvoice>((tx) async {
+      final now = DateTime.now();
+      // ---- reads (all before any write) ----
+      final oldSnap = await tx.get(_sales.doc(saleId));
+      if (!oldSnap.exists) throw const OperationException(['Bill not found.']);
+      final old = SaleInvoice.fromMap(_read(oldSnap));
+      final refusal = SaleEdit.refusal(old);
+      if (refusal != null) throw OperationException([refusal]);
+
+      final batchIds = {...old.lines.map((l) => l.batchId), ...request.lines.map((l) => l.batchId)};
+      final batches = <String, Batch>{};
+      for (final id in batchIds) {
+        final snap = await tx.get(_batches.doc(id));
+        if (snap.exists) batches[id] = Batch.fromMap(_read(snap));
+      }
+      final medicines = <String, Medicine>{};
+      for (final id in {...old.lines.map((l) => l.medicineId), ...batches.values.map((b) => b.medicineId)}) {
+        final snap = await tx.get(_medicines.doc(id));
+        if (snap.exists) medicines[id] = Medicine.fromMap(_read(snap));
+      }
+      final customers = <String, CustomerCredit>{};
+      final newCustomerId = request.paymentMode == PaymentMode.credit ? request.customerId : null;
+      for (final id in {old.customerId, newCustomerId}.whereType<String>()) {
+        final snap = await tx.get(_customers.doc(id));
+        if (snap.exists) customers[id] = CustomerCredit.fromMap(_read(snap));
+      }
+      if (newCustomerId != null && !customers.containsKey(newCustomerId)) {
+        throw const CheckoutException(['That customer account no longer exists.']);
+      }
+
+      // The old bill's stock goes back first; the corrected bill is checked
+      // against that. Expiry is judged on the bill's own date.
+      final back = SaleEdit.stockBack(old, medicines);
+      final restored = {
+        for (final b in batches.values) b.id: b.copyWith(quantity: b.quantity + (back[b.id] ?? 0)),
+      };
+      final plan = CheckoutEngine.plan(request: request, medicines: medicines, batches: restored, now: old.createdAt);
+
+      // Udhaar: the old amount comes off the old account, the new amount goes
+      // on the new one (the same account, usually).
+      final balances = {for (final c in customers.values) c.id: c.outstandingBalancePaise};
+      if (old.customerId != null && balances.containsKey(old.customerId)) {
+        balances[old.customerId!] = balances[old.customerId!]! - old.payablePaise;
+      }
+      final newCustomer = newCustomerId == null ? null : customers[newCustomerId];
+      if (newCustomer != null) {
+        final after = balances[newCustomer.id]! + plan.summary.payablePaise;
+        if (newCustomer.creditLimitPaise > 0 && after > newCustomer.creditLimitPaise) {
+          throw CheckoutException([
+            '${newCustomer.name} would exceed their credit limit of ${formatRupees(newCustomer.creditLimitPaise)}.',
+          ]);
+        }
+        balances[newCustomer.id] = after;
+      }
+
+      final sale = SaleEdit.corrected(
+        id: newRef.id,
+        old: old,
+        request: request,
+        plan: plan,
+        actorUid: actor.uid,
+        actorName: actor.name,
+        now: now,
+        customerName: newCustomer?.name ??
+            (request.customerName.trim().isEmpty ? 'Walk-in Customer' : request.customerName.trim()),
+        customerPhone: newCustomer?.phoneNumber ?? request.customerPhone.trim(),
+        customerId: newCustomer?.id,
+      );
+
+      // ---- writes ----
+      tx.update(_sales.doc(saleId), {
+        'status': SaleStatus.cancelled.name,
+        'cancellationReason': SaleInvoice.editedReason,
+        'cancelledAt': now,
+        'cancelledBy': actor.uid,
+        'cancelledByName': actor.name,
+      });
+      for (final b in restored.values) {
+        final quantity = plan.newBatchQuantities[b.id] ?? b.quantity;
+        if (quantity != batches[b.id]!.quantity) tx.update(_batches.doc(b.id), {'quantity': quantity});
+      }
+      tx.set(newRef, sale.toMap());
+      for (final c in customers.values) {
+        if (balances[c.id] != c.outstandingBalancePaise) {
+          tx.update(_customers.doc(c.id), {'outstandingBalancePaise': balances[c.id]});
+        }
+      }
+      void ledger(String customerId, CreditEntryType type, int amount) {
+        final entryRef = _customers.doc(customerId).collection('ledger').doc();
+        tx.set(
+          entryRef,
+          CreditLedgerEntry(
+            id: entryRef.id,
+            storeId: storeId,
+            customerId: customerId,
+            type: type,
+            amountPaise: amount,
+            invoiceNumber: old.invoiceNumber,
+            notes: 'Bill edited',
+            timestamp: now,
+            createdBy: actor.uid,
+            createdByName: actor.name,
+          ).toMap(),
+        );
+      }
+
+      if (old.customerId != null && customers.containsKey(old.customerId)) {
+        ledger(old.customerId!, CreditEntryType.saleCancelled, old.payablePaise);
+      }
+      if (newCustomer != null) ledger(newCustomer.id, CreditEntryType.creditSale, sale.payablePaise);
+      tx.set(
+        _audit.doc(),
+        _auditEntry('sale_edited', sale.id,
+            '${old.invoiceNumber}: ${formatRupees(old.payablePaise)} → ${formatRupees(sale.payablePaise)}'),
+      );
+      return sale;
     });
   }
 

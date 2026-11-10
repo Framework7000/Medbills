@@ -13,6 +13,9 @@ class OcrLine {
   const OcrLine(this.text, {this.left = 0, this.top = 0, this.right = 0, this.bottom = 0, this.angle = 0});
 
   double get height => bottom - top;
+
+  OcrLine copyWithText(String text) =>
+      OcrLine(text, left: left, top: top, right: right, bottom: bottom, angle: angle);
   double get centerY => (top + bottom) / 2;
 }
 

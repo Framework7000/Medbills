@@ -114,6 +114,7 @@ void main() {
       }
       final complete = find.widgetWithText(FilledButton, 'Complete sale');
       await tester.ensureVisible(complete);
+      await tester.pumpAndSettle();
       await tester.tap(complete);
       await tester.pumpAndSettle();
       expect(find.text('Sale complete'), findsOneWidget);

@@ -11,6 +11,7 @@ import '../../platform/bill_share.dart';
 import '../../platform/invoice_pdf.dart';
 import '../../platform/whatsapp_bill.dart';
 import '../../state/providers.dart';
+import '../billing/billing_screen.dart' show openBillEditor;
 import '../theme.dart';
 import '../widgets/common.dart';
 import 'return_dialog.dart';
@@ -49,6 +50,22 @@ class InvoiceScreen extends ConsumerWidget {
               label: const Text('Return'),
             ),
           if (user != null && user.role.canCancelSales && !sale.isCancelled && !sale.hasReturns)
+            TextButton.icon(
+              key: const ValueKey('edit-bill'),
+              onPressed: () async {
+                final edited = await openBillEditor(context, ref, sale);
+                if (edited != null && context.mounted) {
+                  // Show the corrected bill in place of the old one.
+                  await Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+                    fullscreenDialog: true,
+                    builder: (_) => InvoiceScreen(saleId: edited.id, initial: edited),
+                  ));
+                }
+              },
+              icon: const Icon(PhosphorIconsRegular.pencilSimple),
+              label: const Text('Edit'),
+            ),
+          if (user != null && user.role.canCancelSales && !sale.isCancelled && !sale.hasReturns)
             IconButton(
               tooltip: 'Cancel this sale',
               icon: const Icon(PhosphorIconsRegular.prohibit),
@@ -75,7 +92,7 @@ class InvoiceScreen extends ConsumerWidget {
                           const SizedBox(width: Space.m),
                           Expanded(
                             child: Text('${sale.invoiceNumber} saved · collect ${formatRupees(sale.payablePaise)}'
-                                ' (${sale.paymentMode.label})',
+                                ' (${sale.paymentLabel})',
                                 style: Theme.of(context).textTheme.titleMedium),
                           ),
                         ]),
@@ -261,7 +278,9 @@ class InvoicePaperView extends StatelessWidget {
             ),
             const SizedBox(width: Space.m),
             Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              if (sale.isCancelled)
+              if (sale.isReplaced)
+                const Pill('OLD COPY · EDITED', foreground: AppColors.muted, background: AppColors.dangerContainer)
+              else if (sale.isCancelled)
                 const Pill('CANCELLED', foreground: AppColors.danger, background: AppColors.dangerContainer)
               else
                 const Pill('TAX INVOICE', foreground: AppColors.primary, background: AppColors.primaryContainer),
@@ -273,7 +292,14 @@ class InvoicePaperView extends StatelessWidget {
           const Divider(height: Space.xl),
           Text('${sale.customerName}${sale.customerPhone.isEmpty ? '' : ' · ${sale.customerPhone}'}',
               style: text.bodyMedium),
-          Text('Paid by ${sale.paymentMode.label} · billed by ${sale.createdByName}', style: muted),
+          Text('Paid by ${sale.paymentLabel} · billed by ${sale.createdByName}', style: muted),
+          if (sale.isEdited)
+            Text(
+              'Edited by ${sale.editedByName ?? '-'}'
+              '${sale.editedAt == null ? '' : ' on ${DateFormat('dd MMM yyyy, hh:mm a').format(sale.editedAt!)}'}',
+              key: const ValueKey('edited-note'),
+              style: muted,
+            ),
           if (sale.prescription != null)
             Padding(
               padding: const EdgeInsets.only(top: Space.xs),

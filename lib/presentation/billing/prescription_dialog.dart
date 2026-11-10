@@ -11,18 +11,32 @@ Future<PrescriptionRecord?> showPrescriptionDialog(
   BuildContext context, {
   String patientName = '',
   String patientPhone = '',
+  String doctorName = '',
+  String doctorRegistrationNumber = '',
 }) {
   return showDialog<PrescriptionRecord>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => _PrescriptionDialog(patientName: patientName, patientPhone: patientPhone),
+    builder: (_) => _PrescriptionDialog(
+      patientName: patientName,
+      patientPhone: patientPhone,
+      doctorName: doctorName,
+      doctorRegistrationNumber: doctorRegistrationNumber,
+    ),
   );
 }
 
 class _PrescriptionDialog extends StatefulWidget {
-  const _PrescriptionDialog({required this.patientName, required this.patientPhone});
+  const _PrescriptionDialog({
+    required this.patientName,
+    required this.patientPhone,
+    required this.doctorName,
+    required this.doctorRegistrationNumber,
+  });
   final String patientName;
   final String patientPhone;
+  final String doctorName;
+  final String doctorRegistrationNumber;
 
   @override
   State<_PrescriptionDialog> createState() => _PrescriptionDialogState();
@@ -32,8 +46,8 @@ class _PrescriptionDialogState extends State<_PrescriptionDialog> {
   final _formKey = GlobalKey<FormState>();
   late final _patient = TextEditingController(text: widget.patientName);
   late final _phone = TextEditingController(text: widget.patientPhone);
-  final _doctor = TextEditingController();
-  final _registration = TextEditingController();
+  late final _doctor = TextEditingController(text: widget.doctorName);
+  late final _registration = TextEditingController(text: widget.doctorRegistrationNumber);
 
   @override
   void dispose() {

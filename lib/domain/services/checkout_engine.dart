@@ -24,10 +24,13 @@ class CheckoutRequest {
   final PrescriptionRecord? prescription;
   /// Rupees taken off the whole bill; spread over the lines in proportion.
   final int billDiscountPaise;
+  /// For a Cash + UPI bill: the cash received (the rest is paid by UPI).
+  final int cashPaise;
 
   const CheckoutRequest({
     required this.lines,
     this.billDiscountPaise = 0,
+    this.cashPaise = 0,
     required this.paymentMode,
     this.customerName = '',
     this.customerPhone = '',
@@ -178,14 +181,23 @@ class CheckoutEngine {
       problems.add('Choose a customer account for a credit (udhaar) sale.');
     }
 
+    final summary = BillingCalculator.summarise(finalLines.map((l) => l.billLine));
+    if (request.paymentMode == PaymentMode.split &&
+        (request.cashPaise <= 0 || request.cashPaise >= summary.payablePaise)) {
+      problems.add('Cash + UPI: enter the cash received — more than ₹0 and less than the bill '
+          '${formatRupees(summary.payablePaise)}. The rest is UPI.');
+    }
+
     if (problems.isNotEmpty) throw CheckoutException(problems.toSet().toList());
 
-    return CheckoutPlan(
-      lines: finalLines,
-      summary: BillingCalculator.summarise(finalLines.map((l) => l.billLine)),
-      newBatchQuantities: newQuantities,
-    );
+    return CheckoutPlan(lines: finalLines, summary: summary, newBatchQuantities: newQuantities);
   }
+
+  /// The cash and UPI parts of a Cash + UPI bill (0/0 for any other bill).
+  static ({int cash, int upi}) splitOf(CheckoutRequest request, int payablePaise) =>
+      request.paymentMode == PaymentMode.split
+          ? (cash: request.cashPaise, upi: payablePaise - request.cashPaise)
+          : (cash: 0, upi: 0);
 
   static SaleLine _withTotal(SaleLine l, int total) => SaleLine(
         medicineId: l.medicineId,

@@ -15,6 +15,7 @@ import '../domain/services/batch_correction.dart';
 import '../domain/services/stock_adjustment.dart';
 import '../domain/services/billing_calculator.dart';
 import '../domain/services/checkout_engine.dart';
+import '../domain/services/sale_edit.dart';
 import '../domain/services/invoice_number.dart';
 import '../domain/services/master_corrections.dart';
 import '../domain/services/stock_receipt.dart';
@@ -195,6 +196,8 @@ class LocalPharmacyRepository implements PharmacyRepository {
       grossPaise: plan.summary.grossPaise,
       payablePaise: plan.summary.payablePaise,
       billDiscountPaise: request.billDiscountPaise,
+      cashPaise: CheckoutEngine.splitOf(request, plan.summary.payablePaise).cash,
+      upiPaise: CheckoutEngine.splitOf(request, plan.summary.payablePaise).upi,
       prescription: plan.lines.any((l) => l.scheduleType.requiresRegisterEntry) ? request.prescription : null,
     );
 
@@ -256,6 +259,76 @@ class LocalPharmacyRepository implements PharmacyRepository {
       'cancelledByName': actor.name,
     });
     _notify();
+  }
+
+  @override
+  Future<SaleInvoice> editSale(String saleId, CheckoutRequest request) async {
+    requireManager(actor, 'edit a bill');
+    final old = _sales[saleId];
+    if (old == null) throw const OperationException(['Bill not found.']);
+    final refusal = SaleEdit.refusal(old);
+    if (refusal != null) throw OperationException([refusal]);
+    final now = DateTime.now();
+    final newCustomerId = request.paymentMode == PaymentMode.credit ? request.customerId : null;
+    final newCustomer = newCustomerId == null ? null : _customers[newCustomerId];
+    if (newCustomerId != null && newCustomer == null) {
+      throw const CheckoutException(['That customer account no longer exists.']);
+    }
+
+    final back = SaleEdit.stockBack(old, _medicines);
+    final restored = {
+      for (final b in _batches.values) b.id: back.containsKey(b.id) ? b.copyWith(quantity: b.quantity + back[b.id]!) : b,
+    };
+    final plan = CheckoutEngine.plan(request: request, medicines: _medicines, batches: restored, now: old.createdAt);
+
+    final balances = <String, int>{};
+    final oldCustomer = old.customerId == null ? null : _customers[old.customerId];
+    if (oldCustomer != null) balances[oldCustomer.id] = oldCustomer.outstandingBalancePaise - old.payablePaise;
+    if (newCustomer != null) {
+      final after = (balances[newCustomer.id] ?? newCustomer.outstandingBalancePaise) + plan.summary.payablePaise;
+      if (newCustomer.creditLimitPaise > 0 && after > newCustomer.creditLimitPaise) {
+        throw CheckoutException([
+          '${newCustomer.name} would exceed their credit limit of ${formatRupees(newCustomer.creditLimitPaise)}.',
+        ]);
+      }
+      balances[newCustomer.id] = after;
+    }
+
+    final sale = SaleEdit.corrected(
+      id: _nextId('sale'),
+      old: old,
+      request: request,
+      plan: plan,
+      actorUid: actor.uid,
+      actorName: actor.name,
+      now: now,
+      customerName: newCustomer?.name ??
+          (request.customerName.trim().isEmpty ? 'Walk-in Customer' : request.customerName.trim()),
+      customerPhone: newCustomer?.phoneNumber ?? request.customerPhone.trim(),
+      customerId: newCustomer?.id,
+    );
+
+    _sales[saleId] = SaleInvoice.fromMap({
+      ...old.toMap(),
+      'status': SaleStatus.cancelled.name,
+      'cancellationReason': SaleInvoice.editedReason,
+      'cancelledAt': now,
+      'cancelledByName': actor.name,
+    });
+    for (final b in restored.values) {
+      final quantity = plan.newBatchQuantities[b.id] ?? b.quantity;
+      if (quantity != _batches[b.id]!.quantity) _batches[b.id] = b.copyWith(quantity: quantity);
+    }
+    _sales[sale.id] = sale;
+    balances.forEach((id, balance) => _customers[id] = _customers[id]!.copyWith(outstandingBalancePaise: balance));
+    if (oldCustomer != null) {
+      _addLedger(oldCustomer.id, CreditEntryType.saleCancelled, old.payablePaise, old.invoiceNumber, 'Bill edited', now);
+    }
+    if (newCustomer != null) {
+      _addLedger(newCustomer.id, CreditEntryType.creditSale, sale.payablePaise, sale.invoiceNumber, 'Bill edited', now);
+    }
+    _notify();
+    return sale;
   }
 
   @override

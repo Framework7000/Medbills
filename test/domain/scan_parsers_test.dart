@@ -232,6 +232,41 @@ GROSS TOTAL : 663.96''');
       expect(draft.billTotalPaise, 66396);
     });
 
+    test('the supplier is never the shop the bill is made out to', () {
+      final page = OcrPage.fromText('''
+TO, YASH MEDICAL STORES
+NAPIER TOWN JABALPUR
+SHREE GANESH PHARMA
+GSTIN 23ABZPA1234C1Z5
+1  XYZOCIN 250 TAB  XZ7781  08/27  6  80.00  58.00''');
+      expect(SupplierBillParser.parse(page, medicines, ownName: 'Yash Medical').supplierName, 'Shree Ganesh Pharma');
+    });
+
+    test('a supplier written out after a label is taken as it is', () {
+      final page = OcrPage.fromText('''
+CREDIT BILL
+Supplier: OM SAI DISTRIBUTORS
+1  XYZOCIN 250 TAB  XZ7781  08/27  6  80.00  58.00''');
+      expect(SupplierBillParser.parse(page, medicines).supplierName, 'Om Sai Distributors');
+    });
+
+    test('the supplier is the name printed biggest at the top', () {
+      OcrLine line(String text, double top, double height, {double left = 40, double right = 900}) =>
+          OcrLine(text, left: left, right: right, top: top, bottom: top + height);
+      final page = OcrPage([
+        line('GSTIN: 23ABZPA1234C1Z5', 10, 18, right: 500),
+        line('TAX INVOICE', 10, 18, left: 1200, right: 1500),
+        line('MAA NARMADA AGENCIES', 40, 44),
+        line('KAMLA NEHRU MARKET JABALPUR', 92, 18),
+        line('Phone 0761-400000', 116, 18),
+        line('Bill No: A-112   Date: 07/11/2026', 140, 18),
+        line('1  XYZOCIN 250 TAB  XZ7781  08/27  6  80.00  58.00', 300, 18, right: 1500),
+        line('2  ABCMOL 650 TAB  AB1234  09/27  2  40.00  30.00', 330, 18, right: 1500),
+        line('GRAND TOTAL 408.00', 600, 18, left: 1200, right: 1500),
+      ]);
+      expect(SupplierBillParser.parse(page, medicines).supplierName, 'Maa Narmada Agencies');
+    });
+
     test('a misread rate is worked out from the amount, never swapped with the MRP', () {
       // OCR turned the rate 18.27 into "1S)27." — "24.10" (the MRP) must not
       // become the rate. Rate = amount ÷ quantity; the MRP stays the MRP.

@@ -13,6 +13,7 @@ import '../../domain/models/scan_link.dart';
 import '../../domain/services/billing_calculator.dart';
 import '../../domain/services/gs1_parser.dart';
 import '../../domain/services/pack_units.dart';
+import '../../domain/services/sale_edit.dart';
 import '../../domain/services/schedule_h1_compliance.dart';
 import '../../domain/services/stock_summary.dart';
 import '../../platform/device_features.dart';
@@ -31,7 +32,11 @@ import 'prescription_dialog.dart';
 import 'quantity_dialog.dart';
 
 class BillingScreen extends ConsumerStatefulWidget {
-  const BillingScreen({super.key});
+  const BillingScreen({super.key, this.editMode = false});
+
+  /// Correcting a completed bill (see [openBillEditor]): no phone link, no
+  /// scanning — search to add, change or remove lines, then save.
+  final bool editMode;
 
   @override
   ConsumerState<BillingScreen> createState() => _BillingScreenState();
@@ -57,7 +62,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
     super.initState();
     // A Windows/Mac counter listens for the phone the moment MedBills opens,
     // under the same name as last time — nobody has to switch it on.
-    if (!DeviceFeatures.isPhone) {
+    if (!DeviceFeatures.isPhone && !widget.editMode) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _autoStartStation());
     }
   }
@@ -281,7 +286,9 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
       return;
     }
     final cart = ref.read(cartProvider);
-    final inBill = stock.sellableBatches.fold<int>(0, (sum, b) => sum + (cart.unitsByBatch[b.id] ?? 0));
+    // While editing a bill, units it already holds are not "taken" from stock.
+    final inBill = stock.sellableBatches
+        .fold<int>(0, (sum, b) => sum + (cart.unitsByBatch[b.id] ?? 0) - cart.heldOf(b.id));
     if (stock.sellableUnits - inBill <= 0) {
       showMessage(context, stock.isOutOfStock ? '${stock.medicine.name} is out of stock.' : 'All available stock is already on this bill.',
           error: true);
@@ -312,22 +319,37 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
           error: true);
       return;
     }
+    if (cart.paymentMode == PaymentMode.split && (cart.cashPaise <= 0 || cart.upiPaise <= 0)) {
+      showMessage(context, 'Cash + UPI: type the cash received (less than the bill). The rest is UPI.', error: true);
+      return;
+    }
+    final editing = cart.editing;
     PrescriptionRecord? prescription;
     if (ScheduleCompliance.requiresPrescriptionRecord(cart.schedules)) {
+      final before = editing?.prescription;
       prescription = await showPrescriptionDialog(
         context,
-        patientName: cart.customerName,
-        patientPhone: cart.customerPhone,
+        patientName: before?.patientName ?? cart.customerName,
+        patientPhone: before?.patientPhone ?? cart.customerPhone,
+        doctorName: before?.doctorName ?? '',
+        doctorRegistrationNumber: before?.doctorRegistrationNumber ?? '',
       );
       if (prescription == null || !mounted) return;
     }
 
     setState(() => _checkingOut = true);
     try {
-      final sale = await ref.read(repositoryProvider)!.checkout(cart.toRequest(prescription: prescription));
+      final repo = ref.read(repositoryProvider)!;
+      final request = cart.toRequest(prescription: prescription);
+      final sale = editing == null ? await repo.checkout(request) : await repo.editSale(editing.id, request);
       ref.read(cartProvider.notifier).clear();
       if (!mounted) return;
       if (sheetContext != null && sheetContext.mounted) Navigator.of(sheetContext).pop();
+      if (editing != null) {
+        // Back to the bill, now showing the corrected copy.
+        Navigator.of(context).pop(sale);
+        return;
+      }
       await showInvoice(context, sale, justCompleted: true);
     } catch (e) {
       if (mounted) showMessage(context, friendlyError(e), error: true);
@@ -381,7 +403,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.f2): () => _searchFocus.requestFocus(),
-        const SingleActivator(LogicalKeyboardKey.f3): _openScanHub,
+        if (!widget.editMode) const SingleActivator(LogicalKeyboardKey.f3): _openScanHub,
         const SingleActivator(LogicalKeyboardKey.f9): _checkout,
         const SingleActivator(LogicalKeyboardKey.escape): () => setState(_search.clear),
       },
@@ -389,8 +411,22 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
         autofocus: true,
         child: Scaffold(
           appBar: AppBar(
-            title: const Text('Billing'),
-            bottom: _station == null
+            title: Text(widget.editMode
+                ? 'Edit bill ${ref.watch(cartProvider.select((c) => c.editing?.invoiceNumber)) ?? ''}'
+                : 'Billing'),
+            bottom: widget.editMode
+                ? PreferredSize(
+                    preferredSize: const Size.fromHeight(32),
+                    child: Container(
+                      height: 32,
+                      color: AppColors.primaryContainer,
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: Space.l),
+                      child: const Text('Change, add or remove medicines, then Save changes. Same bill number.',
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+                  )
+                : _station == null
                 ? null
                 : PreferredSize(
                     preferredSize: const Size.fromHeight(32),
@@ -403,7 +439,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
                   ),
-            actions: [
+            actions: widget.editMode ? null : [
               if (DeviceFeatures.isPhone)
                 IconButton(tooltip: 'Smart Scan', icon: const Icon(PhosphorIconsRegular.scanSmiley), onPressed: _openSmartScan)
               else
@@ -464,17 +500,51 @@ class _BillingScreenState extends ConsumerState<BillingScreen> {
   }
 
   void _openCheckoutSheet() {
+    // The sheet is its own route: it must see this screen's cart (a bill
+    // being edited has a cart of its own).
+    final container = ProviderScope.containerOf(context);
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (context) => FractionallySizedBox(
-        heightFactor: 0.9,
-        child: _CheckoutPanel(onCheckout: () => _checkout(sheetContext: context), busy: _checkingOut),
+      builder: (context) => UncontrolledProviderScope(
+        container: container,
+        child: FractionallySizedBox(
+          heightFactor: 0.9,
+          child: _CheckoutPanel(onCheckout: () => _checkout(sheetContext: context), busy: _checkingOut),
+        ),
       ),
     );
   }
+}
+
+/// Opens [sale] for correcting, on a cart of its own (a bill half-made at
+/// the counter is left alone). Returns the corrected bill once saved.
+Future<SaleInvoice?> openBillEditor(BuildContext context, WidgetRef ref, SaleInvoice sale) async {
+  final refusal = SaleEdit.refusal(sale);
+  if (refusal != null) {
+    showMessage(context, refusal, error: true);
+    return null;
+  }
+  final medicines = {
+    for (final s in (ref.read(stockIndexProvider).valueOrNull ?? const <String, StockSummary>{}).values)
+      s.medicine.id: s.medicine,
+  };
+  final customer = sale.customerId == null
+      ? null
+      : (ref.read(customersProvider).valueOrNull ?? const <CustomerCredit>[])
+          .where((c) => c.id == sale.customerId)
+          .firstOrNull;
+  return Navigator.of(context).push<SaleInvoice>(MaterialPageRoute(
+    fullscreenDialog: true,
+    builder: (_) => ProviderScope(
+      overrides: [
+        cartProvider.overrideWith((ref) => CartNotifier()..loadForEdit(sale, medicines: medicines, creditCustomer: customer)),
+      ],
+      child: const BillingScreen(editMode: true),
+    ),
+  ));
 }
 
 class _SearchField extends StatelessWidget {
@@ -592,7 +662,8 @@ class _CartList extends ConsumerWidget {
       itemBuilder: (context, i) {
         final line = cart.lines[i];
         final batch = batchById[line.batchId];
-        final available = batch?.quantity ?? 0;
+        // While editing a bill, what that bill already holds counts as available.
+        final available = (batch?.quantity ?? 0) + cart.heldOf(line.batchId);
         final short = line.quantity > available;
         final step = line.unitsPerPack > 1 ? line.unitsPerPack : 1;
         final stock = index[line.medicineId];
@@ -661,7 +732,7 @@ class _CartList extends ConsumerWidget {
                             // Editing one line: cap at what this line's batch holds.
                             final units = await showQuantityDialog(context,
                                 stock: stock,
-                                alreadyInBill: (stock.sellableUnits - available).clamp(0, 1 << 30),
+                                alreadyInBill: stock.sellableUnits - available,
                                 initialUnits: line.quantity,
                                 batchNumber: line.batchNumber);
                             if (units != null) {
@@ -816,6 +887,7 @@ class _CheckoutPanel extends ConsumerStatefulWidget {
 class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
   late final TextEditingController _name;
   late final TextEditingController _phone;
+  late final TextEditingController _cash;
   bool _localBusy = false;
 
   @override
@@ -824,12 +896,17 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
     final cart = ref.read(cartProvider);
     _name = TextEditingController(text: cart.customerName);
     _phone = TextEditingController(text: cart.customerPhone);
+    _cash = TextEditingController(text: cart.cashPaise > 0 ? _rupeesText(cart.cashPaise) : '');
   }
+
+  static String _rupeesText(int paise) =>
+      paise % 100 == 0 ? '${paise ~/ 100}' : (paise / 100).toStringAsFixed(2);
 
   @override
   void dispose() {
     _name.dispose();
     _phone.dispose();
+    _cash.dispose();
     super.dispose();
   }
 
@@ -886,11 +963,38 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
         Wrap(spacing: Space.s, runSpacing: Space.s, children: [
           for (final mode in PaymentMode.values.where((m) => udhaarEnabled || m != PaymentMode.credit))
             ChoiceChip(
+              key: ValueKey('pay-${mode.name}'),
               label: Text(mode == PaymentMode.credit ? 'Udhaar' : mode.label),
               selected: cart.paymentMode == mode,
               onSelected: (_) => notifier.setPaymentMode(mode),
             ),
         ]),
+        if (cart.paymentMode == PaymentMode.split) ...[
+          const SizedBox(height: Space.m),
+          // Cash + UPI: type the cash; the rest of the bill is UPI.
+          TextField(
+            key: const ValueKey('split-cash'),
+            controller: _cash,
+            decoration: const InputDecoration(labelText: 'Cash received (₹)', prefixText: '₹ '),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d{0,7}(\.\d{0,2})?'))],
+            onChanged: (v) => notifier.setCashPart(parseRupeesToPaise(v) ?? 0),
+          ),
+          const SizedBox(height: Space.xs),
+          Builder(builder: (context) {
+            final ok = cart.cashPaise > 0 && cart.upiPaise > 0;
+            return Text(
+              cart.cashPaise <= 0
+                  ? 'Type the cash part — the rest is UPI.'
+                  : ok
+                      ? 'UPI: ${formatRupees(cart.upiPaise)}'
+                      : 'Cash is the whole bill — choose Cash instead.',
+              key: const ValueKey('split-upi'),
+              style: text.bodyMedium?.copyWith(
+                  color: ok ? AppColors.accent : AppColors.warning, fontWeight: ok ? FontWeight.w600 : null),
+            );
+          }),
+        ],
         const Divider(height: Space.xl * 1.5),
         AmountRow('MRP total', formatRupees(cart.mrpTotalPaise)),
         if (cart.mrpTotalPaise > cart.subtotalPaise)
@@ -938,7 +1042,7 @@ class _CheckoutPanelState extends ConsumerState<_CheckoutPanel> {
           icon: busy
               ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : const Icon(PhosphorIconsRegular.check),
-          label: Text(busy ? 'Saving…' : 'Complete sale'),
+          label: Text(busy ? 'Saving…' : cart.editing != null ? 'Save changes' : 'Complete sale'),
         ),
         if (ScheduleCompliance.requiresPrescriptionRecord(cart.schedules)) ...[
           const SizedBox(height: Space.s),

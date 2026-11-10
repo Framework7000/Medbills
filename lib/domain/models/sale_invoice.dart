@@ -5,6 +5,8 @@ import 'schedule_type.dart';
 enum PaymentMode {
   cash('Cash'),
   upi('UPI'),
+  /// Part cash, part UPI (e.g. ₹100 cash, the rest by UPI).
+  split('Cash + UPI'),
   card('Card'),
   credit('Credit');
 
@@ -164,6 +166,16 @@ class SaleInvoice {
   /// Discount typed for the whole bill, already spread over the lines.
   final int billDiscountPaise;
 
+  /// For a Cash + UPI bill: the cash part (the rest, [upiPaise], by UPI).
+  final int cashPaise;
+  final int upiPaise;
+
+  /// This bill replaces an earlier one that was edited (that bill is kept,
+  /// cancelled, as the record of what it said before).
+  final String? revisionOf;
+  final DateTime? editedAt;
+  final String? editedByName;
+
   const SaleInvoice({
     required this.id,
     required this.storeId,
@@ -187,7 +199,38 @@ class SaleInvoice {
     this.returnedUnits = const [],
     this.refundedPaise = 0,
     this.billDiscountPaise = 0,
+    this.cashPaise = 0,
+    this.upiPaise = 0,
+    this.revisionOf,
+    this.editedAt,
+    this.editedByName,
   });
+
+  bool get isEdited => revisionOf != null;
+
+  /// The reason recorded on a bill that was edited (replaced by a corrected
+  /// copy under the same number).
+  static const editedReason = 'Edited — replaced by the corrected bill';
+
+  /// An old copy of a bill that was later edited: kept for the record, but
+  /// it is not a sale and not a cancellation.
+  bool get isReplaced => isCancelled && cancellationReason == editedReason;
+
+  /// How much of this bill was paid by [mode]: a Cash + UPI bill counts its
+  /// cash part as cash and its UPI part as UPI.
+  int paidBy(PaymentMode mode) {
+    if (paymentMode == PaymentMode.split) {
+      return switch (mode) { PaymentMode.cash => cashPaise, PaymentMode.upi => upiPaise, _ => 0 };
+    }
+    return paymentMode == mode ? payablePaise : 0;
+  }
+
+  /// "Cash", "Udhaar", or "Cash ₹100 + UPI ₹120.50".
+  String get paymentLabel => switch (paymentMode) {
+        PaymentMode.split => 'Cash ${formatRupees(cashPaise)} + UPI ${formatRupees(upiPaise)}',
+        PaymentMode.credit => 'Udhaar',
+        _ => paymentMode.label,
+      };
 
   /// Value of the goods at full MRP, before any discount.
   int get mrpTotalPaise => lines.fold(0, (sum, l) => sum + l.mrpLinePaise);
@@ -238,6 +281,11 @@ class SaleInvoice {
         'billDiscountPaise': billDiscountPaise,
         'returnedUnits': returnedUnits,
         'refundedPaise': refundedPaise,
+        if (paymentMode == PaymentMode.split) 'cashPaise': cashPaise,
+        if (paymentMode == PaymentMode.split) 'upiPaise': upiPaise,
+        if (revisionOf != null) 'revisionOf': revisionOf,
+        if (editedAt != null) 'editedAt': editedAt,
+        if (editedByName != null) 'editedByName': editedByName,
       };
 
   factory SaleInvoice.fromMap(Map<String, dynamic> map) {
@@ -269,6 +317,11 @@ class SaleInvoice {
       returnedUnits: ((map['returnedUnits'] as List?) ?? const []).map((e) => readInt(e)).toList(),
       refundedPaise: readInt(map['refundedPaise']),
       billDiscountPaise: readInt(map['billDiscountPaise']),
+      cashPaise: readInt(map['cashPaise']),
+      upiPaise: readInt(map['upiPaise']),
+      revisionOf: map['revisionOf'] as String?,
+      editedAt: readDate(map['editedAt']),
+      editedByName: map['editedByName'] as String?,
     );
   }
 }

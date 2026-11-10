@@ -164,7 +164,7 @@ class InvoicePdf {
             sectionTitle('Invoice Details:'),
             pw.Text('No.: ${inv.invoiceNumber}', style: cell),
             pw.Text('Date: $date', style: cell),
-            pw.Text('Payment: ${inv.paymentMode == PaymentMode.credit ? 'Udhaar (credit)' : inv.paymentMode.label}',
+            pw.Text('Payment: ${inv.paymentMode == PaymentMode.credit ? 'Udhaar (credit)' : inv.paymentLabel}',
                 style: cell),
             if (context.pagesCount > 1)
               pw.Text('Page ${context.pageNumber} of ${context.pagesCount}', style: small),
@@ -381,7 +381,7 @@ class InvoicePdf {
         _totalRow('Total', inv.grossPaise, size: 8),
         _totalRow('Round off', inv.roundOffPaise, size: 8),
         _totalRow('PAYABLE', inv.payablePaise, bold: true, size: 10),
-        pw.Text('Paid by ${inv.paymentMode.label}', style: small),
+        pw.Text('Paid by ${inv.paymentLabel}', style: small),
         if (inv.prescription != null)
           pw.Text('Rx: ${inv.prescription!.patientName} / Dr. ${inv.prescription!.doctorName} '
               '(${inv.prescription!.doctorRegistrationNumber})', style: small),

@@ -26,18 +26,21 @@ class SupplierBillParser {
   // less as a fallback name than finding nothing.
   static const _notSupplier = [
     'INVOICE', 'GSTIN', 'GST NO', 'PHONE', 'MOBILE', 'ORIGINAL', 'DUPLICATE', 'CASH MEMO', 'BILL TO', 'M/S',
+    'ESTIMATE', 'CREDIT MEMO', 'BILL OF SUPPLY', 'CHALLAN', 'SUBJECT TO', 'JURISDICTION',
   ];
 
-  static BillDraft parse(OcrPage page, Iterable<Medicine> medicines, {String ownGstin = ''}) {
+  /// [ownGstin] and [ownName] are the shop's own: a bill names the shop it
+  /// is made out to, and that is never the supplier.
+  static BillDraft parse(OcrPage page, Iterable<Medicine> medicines, {String ownGstin = '', String ownName = ''}) {
     // Read lying on its side (text running up or down the photo): every line
     // overlaps every other, so the whole bill would come out as one row. Turn
     // the boxes both ways and keep the reading that finds the most.
     if (page.uprightScore < 0) {
-      final a = _parse(page.turned(clockwise: true), medicines, ownGstin);
-      final b = _parse(page.turned(clockwise: false), medicines, ownGstin);
+      final a = _parse(page.turned(clockwise: true), medicines, ownGstin, ownName);
+      final b = _parse(page.turned(clockwise: false), medicines, ownGstin, ownName);
       return _score(a) >= _score(b) ? a : b;
     }
-    return _parse(page, medicines, ownGstin);
+    return _parse(page, medicines, ownGstin, ownName);
   }
 
   static int _score(BillDraft d) =>
@@ -46,7 +49,7 @@ class SupplierBillParser {
       (d.invoiceNumber.isEmpty ? 0 : 3) +
       (d.billTotalPaise == null ? 0 : 3);
 
-  static BillDraft _parse(OcrPage page, Iterable<Medicine> medicines, String ownGstin) {
+  static BillDraft _parse(OcrPage page, Iterable<Medicine> medicines, String ownGstin, String ownName) {
     final rows = page.rows().map((r) => r.toUpperCase()).toList();
     final text = rows.join('\n');
     final own = ownGstin.trim().toUpperCase();
@@ -100,7 +103,7 @@ class SupplierBillParser {
     }
 
     return BillDraft(
-      supplierName: _supplierName(rows),
+      supplierName: _supplierName(rows, page, ownName),
       supplierGstin: gstins.isEmpty ? '' : gstins.first,
       supplierDrugLicence: dl,
       invoiceNumber: invoiceNumber,
@@ -110,25 +113,62 @@ class SupplierBillParser {
     );
   }
 
-  static String _supplierName(List<String> rows) {
-    // A bill's top row often carries the name and "TAX INVOICE" side by
+  static String _supplierName(List<String> rows, OcrPage page, String ownName) {
+    final own = ownName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    bool usable(String piece) =>
+        piece.replaceAll(RegExp(r'[^A-Z]'), '').length >= 5 &&
+        !_notSupplier.any(piece.contains) &&
+        !_gstin.hasMatch(piece) &&
+        !_address.hasMatch(piece) &&
+        // The table's header ("Qty Free MRP …") — even two of its words.
+        _tableWords.where((w) => RegExp('\\b$w\\b').hasMatch(piece)).length < 2 &&
+        // An item row (figures, dates, a batch) is not a name either.
+        piece.replaceAll(RegExp(r'[^0-9]'), '').length * 5 <= piece.replaceAll(' ', '').length &&
+        // The shop the bill is made out to.
+        !(own.length >= 4 && piece.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '').contains(own));
+    String titled(String name) => name
+        .replaceFirst(RegExp(r'^[^A-Za-z0-9]+'), '')
+        .trim()
+        .split(RegExp(r'\s+'))
+        .map((w) => w.length <= 1 ? w : w[0] + w.substring(1).toLowerCase())
+        .join(' ');
+
+    // 1. Written out: "Supplier: Om Sai Distributors", "From: …".
+    for (final r in rows.take(15)) {
+      final m = _labelledSupplier.firstMatch(r);
+      if (m == null) continue;
+      final piece = m.group(1)!.split(RegExp(r'\s{2,}')).first.trim();
+      if (usable(piece)) return titled(piece);
+    }
+
+    // 2. The firm's name is printed biggest at the top of its bill.
+    final upper = [for (final l in page.lines) l.copyWithText(l.text.toUpperCase())];
+    final heights = [
+      for (final l in upper)
+        if (l.height > 0) l.height,
+    ]..sort();
+    if (heights.length >= 6) {
+      final median = heights[heights.length ~/ 2];
+      final top = upper.map((l) => l.top).reduce((a, b) => a < b ? a : b);
+      final bottom = upper.map((l) => l.bottom).reduce((a, b) => a > b ? a : b);
+      final head = upper.where((l) => l.top <= top + (bottom - top) * 0.3 && usable(l.text.trim())).toList()
+        ..sort((a, b) => b.height.compareTo(a.height));
+      if (head.isNotEmpty && head.first.height >= median * 1.35) return titled(head.first.text);
+    }
+
+    // 3. A bill's top row often carries the name and "TAX INVOICE" side by
     // side, so each column piece of a row is judged on its own.
     final head = [
       for (final r in rows.take(8))
         for (final piece in r.split(RegExp(r'\s{2,}')))
-          if (piece.replaceAll(RegExp(r'[^A-Z]'), '').length >= 5 &&
-              !_notSupplier.any(piece.contains) &&
-              !_gstin.hasMatch(piece) &&
-              !_address.hasMatch(piece) &&
-              _tableWords.where((w) => RegExp('\\b$w\\b').hasMatch(piece)).length < 3 &&
-              // An item row (figures, dates, a batch) is not a name either.
-              piece.replaceAll(RegExp(r'[^0-9]'), '').length * 5 <= piece.replaceAll(' ', '').length)
-            piece.trim(),
+          if (usable(piece)) piece.trim(),
     ];
     final name = head.where((r) => _supplierWords.any(r.contains)).firstOrNull ?? head.firstOrNull;
-    if (name == null) return '';
-    return name.split(' ').map((w) => w.length <= 1 ? w : w[0] + w.substring(1).toLowerCase()).join(' ');
+    return name == null ? '' : titled(name);
   }
+
+  static final _labelledSupplier =
+      RegExp(r"(?:^|\s)(?:FROM|SUPPLIER|SOLD\s*BY|SELLER)\s*(?:NAME)?\s*:\s*([A-Z][A-Z0-9&.,' ]{3,60})");
 
   /// The item table's header row ("Description Pack Batch Exp Qty …") is
   /// never the supplier's name.

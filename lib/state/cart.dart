@@ -91,6 +91,14 @@ class CartState {
   final CustomerCredit? creditCustomer;
   /// Rupees off the whole bill (spread over the lines at checkout).
   final int billDiscountPaise;
+  /// Cash + UPI: the cash received; the rest of the bill is UPI.
+  final int cashPaise;
+  /// The completed bill being edited on this cart (null for a new bill).
+  final SaleInvoice? editing;
+  /// While editing: units of each batch that the bill being edited already
+  /// holds — they go back to stock when it is saved, so they can be sold
+  /// on the corrected bill.
+  final Map<String, int> heldUnits;
 
   const CartState({
     this.lines = const [],
@@ -99,7 +107,16 @@ class CartState {
     this.customerName = '',
     this.customerPhone = '',
     this.creditCustomer,
+    this.cashPaise = 0,
+    this.editing,
+    this.heldUnits = const {},
   });
+
+  /// The UPI part of a Cash + UPI bill.
+  int get upiPaise => summary.payablePaise - cashPaise;
+
+  /// Units of [batchId] this cart may sell beyond the batch's stock (see [heldUnits]).
+  int heldOf(String batchId) => heldUnits[batchId] ?? 0;
 
   bool get isEmpty => lines.isEmpty;
 
@@ -151,6 +168,7 @@ class CartState {
     CustomerCredit? creditCustomer,
     bool clearCreditCustomer = false,
     int? billDiscountPaise,
+    int? cashPaise,
   }) {
     final newLines = lines ?? this.lines;
     return CartState(
@@ -161,6 +179,9 @@ class CartState {
       customerName: customerName ?? this.customerName,
       customerPhone: customerPhone ?? this.customerPhone,
       creditCustomer: clearCreditCustomer ? null : creditCustomer ?? this.creditCustomer,
+      cashPaise: cashPaise ?? this.cashPaise,
+      editing: editing,
+      heldUnits: heldUnits,
     );
   }
 
@@ -175,6 +196,7 @@ class CartState {
             ),
         ],
         billDiscountPaise: appliedBillDiscountPaise,
+        cashPaise: paymentMode == PaymentMode.split ? cashPaise : 0,
         paymentMode: paymentMode,
         customerName: customerName,
         customerPhone: customerPhone,
@@ -190,7 +212,9 @@ class CartNotifier extends StateNotifier<CartState> {
   /// skipping units already on this bill. Throws [InsufficientStockException].
   void addMedicine(Medicine medicine, List<Batch> batches, int units, {DateTime? now}) {
     final allocations = FefoSelector.selectBatches(
-      batches: batches,
+      batches: [
+        for (final b in batches) state.heldOf(b.id) > 0 ? b.copyWith(quantity: b.quantity + state.heldOf(b.id)) : b,
+      ],
       requestedQty: units,
       reserved: state.unitsByBatch,
       now: now,
@@ -218,7 +242,8 @@ class CartNotifier extends StateNotifier<CartState> {
     state = state.copyWith(lines: lines);
   }
 
-  /// Sets a line's quantity, capped by what that batch currently holds.
+  /// Sets a line's quantity, capped by what that batch currently holds
+  /// (plus, while editing a bill, what that bill already has of it).
   /// Returns false (and changes nothing) if [units] exceeds [available].
   bool setQuantity(int index, int units, {required int available}) {
     if (index < 0 || index >= state.lines.length) return false;
@@ -269,6 +294,53 @@ class CartNotifier extends StateNotifier<CartState> {
 
   void setPaymentMode(PaymentMode mode) {
     state = state.copyWith(paymentMode: mode, clearCreditCustomer: mode != PaymentMode.credit);
+  }
+
+  /// Cash + UPI: the cash received (the rest is UPI).
+  void setCashPart(int paise) => state = state.copyWith(cashPaise: paise < 0 ? 0 : paise);
+
+  /// Puts a completed bill on this cart to be corrected: its lines (same
+  /// batches and prices), discount, customer and payment. [medicines]
+  /// converts quantities if a pack size changed since; [creditCustomer] is
+  /// the udhaar account, if it was an udhaar bill.
+  void loadForEdit(SaleInvoice sale, {Map<String, Medicine> medicines = const {}, CustomerCredit? creditCustomer}) {
+    final held = <String, int>{};
+    final lines = <CartLine>[];
+    for (final l in sale.lines) {
+      final medicine = medicines[l.medicineId];
+      final units = medicine?.unitsNowFor(l.quantity, l.unitsPerPack) ?? l.quantity;
+      held.update(l.batchId, (v) => v + units, ifAbsent: () => units);
+      final index = lines.indexWhere((x) => x.batchId == l.batchId);
+      if (index >= 0) {
+        lines[index] = lines[index].withQuantity(lines[index].quantity + units);
+        continue;
+      }
+      lines.add(CartLine(
+        medicineId: l.medicineId,
+        batchId: l.batchId,
+        name: l.name,
+        batchNumber: l.batchNumber,
+        expiryDate: l.expiryDate,
+        unitsPerPack: medicine?.unitsPerPack ?? l.unitsPerPack,
+        quantity: units,
+        mrpPaise: l.mrpPaise,
+        gstRate: medicine?.gstRate ?? l.gstRate,
+        scheduleType: medicine?.scheduleType ?? l.scheduleType,
+        ratePaise: l.ratePaise < l.mrpPaise ? l.ratePaise : null,
+      ));
+    }
+    final credit = sale.paymentMode == PaymentMode.credit;
+    state = CartState(
+      lines: lines,
+      billDiscountPaise: sale.billDiscountPaise,
+      paymentMode: credit && creditCustomer == null ? PaymentMode.cash : sale.paymentMode,
+      customerName: sale.customerName == 'Walk-in Customer' ? '' : sale.customerName,
+      customerPhone: sale.customerPhone,
+      creditCustomer: credit ? creditCustomer : null,
+      cashPaise: sale.cashPaise,
+      editing: sale,
+      heldUnits: held,
+    );
   }
 
   void setCustomer({String? name, String? phone}) {

@@ -6,6 +6,7 @@ import 'package:nuskha_pms/domain/models/supplier_account.dart';
 import 'package:nuskha_pms/domain/services/billing_calculator.dart';
 import 'package:nuskha_pms/domain/services/checkout_engine.dart';
 import 'package:nuskha_pms/domain/services/day_book.dart';
+import 'package:nuskha_pms/domain/services/profit_loss_service.dart';
 import 'package:nuskha_pms/domain/services/stock_summary.dart';
 import 'package:nuskha_pms/domain/services/pack_units.dart';
 import 'package:nuskha_pms/domain/services/master_corrections.dart';
@@ -202,6 +203,32 @@ void main() {
     expect(t.paidOutPaise, 30000);
     expect(t.netCashPaise, (6700 - 3360 + 6700) - 30000);
     expect(book.byDay.keys.single, today);
+  });
+
+  test('a Cash + UPI bill counts its parts as cash and UPI; an edited bill\'s old copy counts as nothing', () {
+    final today = DateTime(now.year, now.month, now.day);
+    final split = SaleInvoice.fromMap({...sale().toMap(), 'paymentMode': 'split', 'cashPaise': 2000, 'upiPaise': 4700});
+    final oldCopy = SaleInvoice.fromMap({
+      ...sale().toMap(),
+      'id': 'old',
+      'status': 'cancelled',
+      'cancellationReason': SaleInvoice.editedReason,
+    });
+    final cancelled = SaleInvoice.fromMap({...sale().toMap(), 'id': 'c', 'status': 'cancelled', 'cancellationReason': 'x'});
+    final book = DayBook.build(
+      from: today,
+      to: today.add(const Duration(days: 1)),
+      sales: [split, oldCopy, cancelled],
+    );
+    final t = book.total;
+    expect(t.bills, 1);
+    expect(t.cashSalesPaise, 2000);
+    expect(t.upiSalesPaise, 4700);
+    expect(t.cashInPaise, 6700);
+    expect(t.cancelledBills, 1, reason: 'an edit is not a cancellation');
+    final pl = ProfitLossService.calculate([split, oldCopy, cancelled]);
+    expect(pl.salesPaise, 6720);
+    expect(pl.cancelledCount, 1);
   });
 
   test('stock value counts every batch at its own rate; expired kept apart', () {

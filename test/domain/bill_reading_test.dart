@@ -3,7 +3,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nuskha_pms/domain/models/bill_scan.dart';
+import 'package:nuskha_pms/domain/models/supplier_account.dart';
 import 'package:nuskha_pms/domain/services/bill_reading_merge.dart';
+import 'package:nuskha_pms/domain/services/distributor_match.dart';
 import 'package:nuskha_pms/domain/services/ocr_text.dart';
 import 'package:nuskha_pms/domain/services/photo_clean.dart';
 
@@ -159,5 +161,39 @@ void main() {
     expect(at(190, 5), greaterThan(225), reason: 'paper in the light is white');
     expect(at(14, 15), lessThan(80), reason: 'print in the shadow is dark');
     expect(at(189, 15), lessThan(80), reason: 'print in the light is dark');
+  });
+
+  group('which known distributor a bill is from', () {
+    Distributor d(String name, {String gstin = ''}) =>
+        Distributor(id: Distributor.idFor(name), storeId: 's', name: name, gstin: gstin, createdAt: DateTime(2026));
+    final list = [
+      d('Apna Medical Agency', gstin: '23ABZPA1234C1Z5'),
+      d('Shree Ganesh Pharma'),
+      d('Medical Agency'), // says nothing on its own
+    ];
+
+    test('by GSTIN, exactly', () {
+      expect(matchDistributor(gstin: '23abzpa1234c1z5', supplierName: '', ocrText: '', distributors: list)?.name,
+          'Apna Medical Agency');
+    });
+
+    test('by the full name anywhere on the bill', () {
+      expect(
+          matchDistributor(
+                  gstin: '', supplierName: 'Tax Invoice', ocrText: 'TAX INVOICE\nSHREE GANESH  PHARMA.\nJABALPUR', distributors: list)
+              ?.name,
+          'Shree Ganesh Pharma');
+    });
+
+    test('by a name read a letter off', () {
+      expect(matchDistributor(gstin: '', supplierName: 'Apna Medlcal Agencv', ocrText: '', distributors: list)?.name,
+          'Apna Medical Agency');
+    });
+
+    test('a new distributor, or a name that only says "Medical Agency", matches nothing', () {
+      expect(matchDistributor(gstin: '', supplierName: 'Om Sai Distributors', ocrText: 'OM SAI', distributors: list), isNull);
+      expect(
+          matchDistributor(gstin: '', supplierName: '', ocrText: 'RAJ MEDICAL AGENCY JABALPUR', distributors: list), isNull);
+    });
   });
 }

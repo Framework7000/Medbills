@@ -3,6 +3,31 @@
 Read this first, then `README.md`. Branch: `claude/medbills-repo-t8ueeh`
 (GitHub: Framework7000/Medbills). Everything below is pushed.
 
+## 10 Nov 2026: edit a bill, Cash + UPI, sturdier supplier-bill reading
+
+- **Edit a bill** (Bills → open a bill → Edit; owner/pharmacist only, not
+  for bills with returns). The bill opens in Billing on a cart of its own
+  (`openBillEditor`, a nested `ProviderScope` overriding `cartProvider`, so
+  a half-made bill at the counter is untouched). Saving calls
+  `PharmacyRepository.editSale`: one transaction puts the old bill's stock
+  back, checks the corrected bill against that, saves it as a new document
+  with the **same invoice number and date** (`revisionOf`, `editedAt`,
+  `editedByName`), cancels the old one with the fixed reason
+  `SaleInvoice.editedReason` (`isReplaced`: hidden in Bills, counted as
+  neither a sale nor a cancellation), moves any udhaar, and writes a
+  `sale_edited` audit entry. No rules change was needed.
+- **Cash + UPI** (`PaymentMode.split`): type the cash received, the rest is
+  UPI (`cashPaise` / `upiPaise` on the bill). Day book and P&L count each
+  part under its own mode (`SaleInvoice.paidBy`).
+- **Supplier bills**: every photo is read twice (as taken, and cleaned up:
+  `photo_clean.dart`) and the readings combined (`bill_reading_merge.dart`:
+  a figure the two disagree on is left blank, never guessed); turned pages
+  are straightened before rows are grouped (`OcrPage.rows`). The supplier is
+  matched to the shop's own distributors by GSTIN or name
+  (`distributor_match.dart`), taken from a "Supplier:" label or the biggest
+  print at the top, and is never the shop itself. Purchases → Take a photo
+  uses the guided in-app camera (live hints, takes the photo by itself).
+
 ## 7 Nov 2026: Yash bhaiya's shop list (v1.2.0)
 
 Done, tested (181 Flutter tests; 88 Firestore-rules checks in the real emulator):

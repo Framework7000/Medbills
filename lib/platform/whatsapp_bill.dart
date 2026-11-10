@@ -23,7 +23,7 @@ class WhatsAppBill {
     b
       ..writeln('------------------------------')
       ..writeln('GST included: ${formatRupees(invoice.gstPaise)}')
-      ..writeln('*Total: ${formatRupees(invoice.payablePaise)}* (${invoice.paymentMode.label})');
+      ..writeln('*Total: ${formatRupees(invoice.payablePaise)}* (${invoice.paymentLabel})');
     if (invoice.isCancelled) b.writeln('_This invoice has been cancelled._');
     b.write('Thank you for choosing ${store.name}!');
     return b.toString();

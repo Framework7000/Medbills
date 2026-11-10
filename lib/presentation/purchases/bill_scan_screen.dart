@@ -14,11 +14,14 @@ import '../../domain/models/supplier_account.dart';
 import '../../domain/models/medicine.dart';
 import '../../domain/services/billing_calculator.dart';
 import '../../domain/services/bill_reading_merge.dart';
+import '../../domain/services/distributor_match.dart';
 import '../../domain/services/ocr_text.dart';
 import '../../domain/services/stock_receipt.dart';
 import '../../domain/services/supplier_bill_parser.dart';
 import '../../platform/bill_photo.dart';
 import '../../platform/device_features.dart';
+import '../scan/barcode_scanner_screen.dart' show openContinuousScanner, ScanFeedback;
+import '../scan/smart_camera.dart' show smartCameraAvailable;
 import '../../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -63,7 +66,9 @@ Future<bool> captureSupplierBill(BuildContext context, WidgetRef ref) async {
           ListTile(
             leading: const Icon(PhosphorIconsRegular.camera),
             title: const Text('Take a photo of the bill'),
-            subtitle: const Text('Flat, in good light, whole page in view'),
+            subtitle: Text(smartCameraAvailable
+                ? 'The camera guides you and takes the photo by itself'
+                : 'Flat, in good light, whole page in view'),
             onTap: () => Navigator.pop(context, ImageSource.camera),
           ),
           ListTile(
@@ -77,6 +82,35 @@ Future<bool> captureSupplierBill(BuildContext context, WidgetRef ref) async {
     );
   }
   if (source == null || !context.mounted) return false;
+  if (source == ImageSource.camera && smartCameraAvailable) {
+    // The app's own bill camera: it says what to do ("Move closer", "Too
+    // dark — turn on the torch", …) and photographs the bill by itself
+    // once it is whole, sharp, level and lit. A GST e-invoice QR seen on
+    // the way gives the exact supplier, number, date and total.
+    String? shot;
+    EInvoiceCode? eInvoice;
+    await openContinuousScanner(
+      context,
+      title: 'Photograph the bill',
+      onScan: (raw) async {
+        final code = ScannedCode.decode(raw);
+        if (code is EInvoiceCode) {
+          eInvoice = code;
+          return const ScanFeedback('Bill QR read — now hold the whole bill in view');
+        }
+        return const ScanFeedback('Hold the whole bill in view — it photographs itself');
+      },
+      onCapturePhoto: (path) async {
+        if (path == null) return null;
+        shot = path;
+        if (context.mounted) Navigator.of(context).pop();
+        return null;
+      },
+    );
+    final photo = shot;
+    if (photo == null || !context.mounted) return false;
+    return receiveBillPhoto(context, ref, XFile(photo), eInvoice: eInvoice);
+  }
   final file = await ImagePicker().pickImage(source: source, maxWidth: 2400, imageQuality: 95);
   if (file == null || !context.mounted) return false;
   return receiveBillPhoto(context, ref, file);
@@ -101,6 +135,7 @@ Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file,
     PreparedBillPhoto? prepared}) async {
   final repo = ref.read(repositoryProvider)!;
   final ownGstin = ref.read(storeProvider).valueOrNull?.gstin ?? '';
+  final ownName = ref.read(storeProvider).valueOrNull?.name ?? '';
   final medicines = _knownMedicines(ref);
   showDialog<void>(
     context: context,
@@ -129,8 +164,22 @@ Future<bool> receiveBillPhoto(BuildContext context, WidgetRef ref, XFile file,
     // filled from the other, and a figure they disagree on is left blank.
     var draft = combineBillReadings([
       for (final p in [ocrPage, ready.cleaned])
-        if (p != null && !p.isEmpty) SupplierBillParser.parse(p, medicines, ownGstin: ownGstin),
+        if (p != null && !p.isEmpty) SupplierBillParser.parse(p, medicines, ownGstin: ownGstin, ownName: ownName),
     ]);
+    // A distributor the shop already buys from: their GSTIN, or their name
+    // anywhere on the bill (even read a letter off), gives the exact name.
+    final known = matchDistributor(
+      gstin: draft.supplierGstin,
+      supplierName: draft.supplierName,
+      ocrText: [ocrPage?.text, ready.cleaned?.text].whereType<String>().join('\n'),
+      distributors: ref.read(distributorsProvider).valueOrNull ?? const [],
+    );
+    if (known != null) {
+      draft = draft.copyWith(
+        supplierName: known.name,
+        supplierGstin: draft.supplierGstin.isEmpty && known.gstin.isNotEmpty ? known.gstin : null,
+      );
+    }
     // A line the shop's own list didn't match: look its name up in the
     // full Indian medicine list so the review shows the proper name
     // (still marked "not matched" until the pharmacist confirms it).

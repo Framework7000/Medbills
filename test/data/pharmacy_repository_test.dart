@@ -228,6 +228,133 @@ void contract(RepoFactory create, {required RepoFactory as}) {
     });
   });
 
+  test('Cash + UPI: the cash part and the UPI rest are saved; the cash must be less than the bill', () async {
+    // 20 tablets = ₹44.80 → ₹45 payable.
+    final sale = await repo.checkout(CheckoutRequest(
+      lines: [CheckoutLineRequest(medicineId: 'dolo', batchId: doloBatchId, quantity: 20)],
+      paymentMode: PaymentMode.split,
+      cashPaise: 2000,
+    ));
+    expect((sale.cashPaise, sale.upiPaise), (2000, 2500));
+    expect(sale.paidBy(PaymentMode.cash), 2000);
+    expect(sale.paidBy(PaymentMode.upi), 2500);
+    expect(sale.paymentLabel, 'Cash ₹20.00 + UPI ₹25.00');
+    final saved = (await repo.watchRecentSales().first).single;
+    expect((saved.paymentMode, saved.cashPaise, saved.upiPaise), (PaymentMode.split, 2000, 2500));
+
+    for (final cash in [0, 4500, 9000]) {
+      await expectLater(
+        repo.checkout(CheckoutRequest(
+          lines: [CheckoutLineRequest(medicineId: 'dolo', batchId: doloBatchId, quantity: 20)],
+          paymentMode: PaymentMode.split,
+          cashPaise: cash,
+        )),
+        throwsA(isA<CheckoutException>()),
+        reason: 'cash ₹${cash / 100} of a ₹45 bill',
+      );
+    }
+    expect(await stock(), 130, reason: 'refused bills take no stock');
+  });
+
+  test('editing a bill: same number and date, stock moved, old copy kept; managers only', () async {
+    final sale = await sell(30); // 2 strips
+    expect(await stock(), 120);
+    final edited = await repo.editSale(
+      sale.id,
+      CheckoutRequest(
+        lines: [CheckoutLineRequest(medicineId: 'dolo', batchId: doloBatchId, quantity: 45)], // 3 strips
+        paymentMode: PaymentMode.split,
+        cashPaise: 5000,
+        customerName: 'Ramesh',
+      ),
+    );
+    expect(await stock(), 105, reason: '30 back, 45 out');
+    expect(edited.id, isNot(sale.id));
+    expect(edited.invoiceNumber, sale.invoiceNumber);
+    expect(edited.createdAt, sale.createdAt);
+    expect(edited.payablePaise, 10100); // ₹100.80 → ₹101
+    expect((edited.cashPaise, edited.upiPaise), (5000, 5100));
+    expect(edited.customerName, 'Ramesh');
+    expect(edited.revisionOf, sale.id);
+    expect(edited.isEdited, isTrue);
+    expect(edited.editedByName, owner.name);
+
+    final all = await repo.watchRecentSales().first;
+    expect(all, hasLength(2));
+    final old = all.firstWhere((s) => s.id == sale.id);
+    expect(old.isReplaced, isTrue, reason: 'the old copy stays on record');
+    expect(old.lines.single.quantity, 30);
+    expect(all.firstWhere((s) => s.id == edited.id).isCancelled, isFalse);
+
+    // An edited bill can be edited again, and lines removed down to fewer units.
+    final again = await repo.editSale(
+      edited.id,
+      CheckoutRequest(
+        lines: [CheckoutLineRequest(medicineId: 'dolo', batchId: doloBatchId, quantity: 15)],
+        paymentMode: PaymentMode.cash,
+      ),
+    );
+    expect(await stock(), 135);
+    expect(again.invoiceNumber, sale.invoiceNumber);
+
+    await expectLater(
+      as(counter).editSale(again.id, const CheckoutRequest(lines: [], paymentMode: PaymentMode.cash)),
+      throwsA(isA<NotPermittedException>()),
+    );
+    // Editing a bill can't sell more than there is (its own units count as available).
+    await expectLater(
+      as(owner).editSale(
+          again.id,
+          CheckoutRequest(
+            lines: [CheckoutLineRequest(medicineId: 'dolo', batchId: doloBatchId, quantity: 151)],
+            paymentMode: PaymentMode.cash,
+          )),
+      throwsA(isA<CheckoutException>()),
+    );
+    expect(await stock(), 135, reason: 'a refused edit changes nothing');
+    final next = await sell(1);
+    expect(next.invoiceNumber, isNot(sale.invoiceNumber), reason: 'edits do not use up invoice numbers');
+  });
+
+  test('editing an udhaar bill moves what the customer owes; a returned or cancelled bill cannot be edited', () async {
+    final customer = await repo.createCustomer(name: 'Sunita Verma', phone: '9826012345');
+    final sale = await sell(30, mode: PaymentMode.credit, customerId: customer.id); // ₹67
+    Future<int> owes() async =>
+        (await repo.watchCustomers().first).firstWhere((c) => c.id == customer.id).outstandingBalancePaise;
+    expect(await owes(), 6700);
+
+    final edited = await repo.editSale(
+      sale.id,
+      CheckoutRequest(
+        lines: [CheckoutLineRequest(medicineId: 'dolo', batchId: doloBatchId, quantity: 15)],
+        paymentMode: PaymentMode.credit,
+        customerId: customer.id,
+      ),
+    );
+    expect(await owes(), 3400, reason: '₹67 off, ₹34 on');
+    final paidNow = await repo.editSale(
+      edited.id,
+      CheckoutRequest(
+        lines: [CheckoutLineRequest(medicineId: 'dolo', batchId: doloBatchId, quantity: 15)],
+        paymentMode: PaymentMode.cash,
+      ),
+    );
+    expect(await owes(), 0, reason: 'paid in cash after all');
+    expect(paidNow.customerId, isNull);
+
+    await repo.returnSaleItems(saleId: paidNow.id, units: {0: 5}, refundMode: RefundMode.cash, reason: 'extra');
+    await expectLater(
+      repo.editSale(paidNow.id, const CheckoutRequest(lines: [], paymentMode: PaymentMode.cash)),
+      throwsA(isA<OperationException>()),
+    );
+    final other = await sell(1);
+    await repo.cancelSale(other.id, 'mistake');
+    await expectLater(
+      repo.editSale(other.id, const CheckoutRequest(lines: [], paymentMode: PaymentMode.cash)),
+      throwsA(isA<OperationException>()),
+    );
+  });
+
   test('a line sold below MRP and a bill discount are saved on the bill; never above MRP', () async {
     // 30 tablets = 2 strips at MRP ₹33.60 = ₹67.20; sold at ₹30/strip = ₹60, then ₹5 off the bill.
     final sale = await repo.checkout(CheckoutRequest(

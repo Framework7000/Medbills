@@ -133,6 +133,66 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('a bill is edited later (more strips, Cash + UPI), same number, stock moved ($w wide)', (tester) async {
+      final container = await start(tester);
+      final repo = container.read(repositoryProvider)!;
+      final stock = container.read(stockIndexProvider).value!;
+      final item = stock.values.firstWhere((s) =>
+          s.sellableBatches.any((b) => b.quantity >= s.medicine.unitsPerPack * 4) &&
+          s.medicine.scheduleType.isSellable &&
+          !s.medicine.scheduleType.requiresRegisterEntry);
+      final perPack = item.medicine.unitsPerPack;
+      final batch = item.sellableBatches.firstWhere((b) => b.quantity >= perPack * 4);
+      container.read(cartProvider.notifier).addMedicine(item.medicine, [batch], perPack);
+      await tester.pumpAndSettle();
+      if (find.widgetWithText(FilledButton, 'Complete sale').hitTestable().evaluate().isEmpty) {
+        await tester.tap(find.widgetWithText(FilledButton, 'Checkout'));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.widgetWithText(FilledButton, 'Complete sale'));
+      await _settle(tester);
+      final sale = (await tester.runAsync(() => repo.watchRecentSales().first))!.first;
+      Future<int> left() async =>
+          (await tester.runAsync(() => repo.watchBatches().first))!.firstWhere((b) => b.id == batch.id).quantity;
+      final before = await left();
+
+      // Edit: the bill opens on its own cart, with its line.
+      await tester.tap(find.byKey(const ValueKey('edit-bill')));
+      await _settle(tester);
+      expect(find.text('Edit bill ${sale.invoiceNumber}'), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: 'bill editor');
+      // One more strip, twice: the bill's own strip counts as available.
+      final more = perPack > 1 ? 'One pack more' : 'One more';
+      await tester.tap(find.byTooltip(more).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip(more).first);
+      await tester.pumpAndSettle();
+      if (find.byKey(const ValueKey('pay-split')).hitTestable().evaluate().isEmpty) {
+        await tester.tap(find.widgetWithText(FilledButton, 'Checkout'));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.byKey(const ValueKey('pay-split')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const ValueKey('split-cash')), '10');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('UPI: ₹'), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: 'Cash + UPI fields');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save changes'));
+      await _settle(tester);
+
+      final sales = (await tester.runAsync(() => repo.watchRecentSales().first))!;
+      final edited = sales.firstWhere((s) => s.revisionOf == sale.id);
+      expect(edited.invoiceNumber, sale.invoiceNumber);
+      expect(edited.lines.single.quantity, perPack * 3);
+      expect((edited.paymentMode.name, edited.cashPaise, edited.upiPaise), ('split', 1000, edited.payablePaise - 1000));
+      expect(await left(), before - perPack * 2);
+      expect(sales.firstWhere((s) => s.id == sale.id).isReplaced, isTrue);
+      expect(find.byKey(const ValueKey('edited-note')), findsOneWidget, reason: 'the corrected bill is shown');
+      expect(find.textContaining('Cash ₹10.00 + UPI'), findsWidgets);
+      expect(container.read(cartProvider).isEmpty, isTrue, reason: 'the counter cart was never touched');
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('change a batch\'s stock count right on the stock screen ($w wide)', (tester) async {
       final container = await start(tester);
       final repo = container.read(repositoryProvider)!;

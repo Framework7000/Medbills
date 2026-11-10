@@ -37,6 +37,7 @@ class ProfitLossService {
     final bySlab = <double, int>{};
 
     for (final invoice in invoices) {
+      if (invoice.isReplaced) continue; // an edited bill's old copy
       if (invoice.isCancelled) {
         cancelled++;
         continue;
@@ -45,8 +46,10 @@ class ProfitLossService {
       sales += invoice.grossPaise;
       gst += invoice.gstPaise;
       cost += invoice.costPaise;
-      byMode.update(invoice.paymentMode, (v) => v + invoice.payablePaise,
-          ifAbsent: () => invoice.payablePaise);
+      for (final mode in PaymentMode.values) {
+        final paid = invoice.paidBy(mode);
+        if (paid != 0) byMode.update(mode, (v) => v + paid, ifAbsent: () => paid);
+      }
       for (final slab in invoice.slabs) {
         bySlab.update(slab.rate, (v) => v + slab.gstPaise, ifAbsent: () => slab.gstPaise);
       }

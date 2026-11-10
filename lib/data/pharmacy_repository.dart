@@ -75,6 +75,13 @@ abstract class PharmacyRepository {
   /// credit, and writes an audit entry. Managers only.
   Future<void> cancelSale(String saleId, String reason);
 
+  /// Changes a completed bill, all at once: the old bill's stock goes back,
+  /// the corrected bill is checked against stock and saved under the same
+  /// invoice number and date, the old bill is kept (cancelled, marked
+  /// "edited") as the record of what it said, and any udhaar is moved from
+  /// the old amount to the new. Managers only; not for bills with returns.
+  Future<SaleInvoice> editSale(String saleId, CheckoutRequest request);
+
   /// Records a supplier delivery: creates the medicine if it's new to the
   /// store, creates or tops up the batch, and logs the purchase. Managers only.
   /// With a supplier name it also adds the cost to that supplier's bill

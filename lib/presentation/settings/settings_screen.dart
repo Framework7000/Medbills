@@ -167,7 +167,7 @@ class SettingsScreen extends ConsumerWidget {
                 style: text.bodySmall?.copyWith(color: AppColors.muted),
               ),
               const SizedBox(height: Space.s),
-              Text('MedBills 1.2.0', style: text.bodySmall?.copyWith(color: AppColors.muted)),
+              Text('MedBills 1.3.0', style: text.bodySmall?.copyWith(color: AppColors.muted)),
             ],
           ),
         ),

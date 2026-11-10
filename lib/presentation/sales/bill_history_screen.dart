@@ -52,6 +52,9 @@ class _BillHistoryScreenState extends ConsumerState<BillHistoryScreen> {
   }
 
   bool _matches(SaleInvoice s, String q) {
+    // An edited bill's old copy stays on record but isn't listed: the
+    // corrected bill (same number) is.
+    if (s.isReplaced) return false;
     if (_show == _Show.cancelled && !s.isCancelled) return false;
     if (_show == _Show.credit && s.paymentMode != PaymentMode.credit) return false;
     if (q.isEmpty) return true;
@@ -208,7 +211,7 @@ class _SaleTile extends StatelessWidget {
               color: sale.isCancelled ? AppColors.muted : null,
             ),
           ),
-          Text(sale.paymentMode.label, style: text.bodySmall?.copyWith(color: AppColors.muted)),
+          Text(sale.isEdited ? '${sale.paymentLabel} · edited' : sale.paymentLabel, style: text.bodySmall?.copyWith(color: AppColors.muted)),
         ]),
       ),
     );
