@@ -1,0 +1,21 @@
+name: Keep the Android signing key
+
+# The Android app is signed with one permanent key, kept in GitHub's build
+# cache (see build.yml). GitHub drops a cache nobody reads for 7 days, and a
+# new key would make every phone refuse the next update ("App not installed")
+# until the old app is uninstalled. Reading it twice a week keeps it.
+on:
+  schedule:
+    - cron: "17 4 * * 1,4"
+  workflow_dispatch:
+
+jobs:
+  keep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the signing key (fails loudly if it was ever lost)
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: medbills-android-signing-key-v1
+          fail-on-cache-miss: true

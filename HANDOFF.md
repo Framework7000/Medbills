@@ -27,6 +27,11 @@ Read this first, then `README.md`. Branch: `claude/medbills-repo-t8ueeh`
   (`distributor_match.dart`), taken from a "Supplier:" label or the biggest
   print at the top, and is never the shop itself. Purchases → Take a photo
   uses the guided in-app camera (live hints, takes the photo by itself).
+- **Android installs**: the APK is signed with one key kept in the Actions
+  cache since 3 Nov (run #32); phones with an older build must uninstall
+  once. `keep-signing-key.yml` reads the cache twice a week so GitHub never
+  evicts it (it fails loudly if the key is ever lost). The version code is
+  now the build number, so each build installs as an update.
 
 ## 7 Nov 2026: Yash bhaiya's shop list (v1.2.0)
 
