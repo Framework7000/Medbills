@@ -8,6 +8,7 @@ import 'package:nuskha_pms/domain/services/bill_reading_merge.dart';
 import 'package:nuskha_pms/domain/services/distributor_match.dart';
 import 'package:nuskha_pms/domain/services/ocr_text.dart';
 import 'package:nuskha_pms/domain/services/photo_clean.dart';
+import 'package:nuskha_pms/domain/services/supplier_bill_parser.dart';
 
 /// A bill table read as separate pieces per column, photographed turned by
 /// [degrees] (rows run uphill to the right).
@@ -48,6 +49,100 @@ BillDraftLine line(String name,
         mrpPaise: mrp);
 
 void main() {
+  /// A whole distributor bill (header, table, footer) as text pieces with
+  /// positions, lying [degrees] turned (rows run uphill to the right) and,
+  /// optionally, upside down — as ML Kit reads a photo taken the wrong way up:
+  /// every piece's text correct, its position turned half a turn.
+  OcrPage ankurBill({double degrees = 0, bool upsideDown = false}) {
+    final slope = math.tan(degrees * math.pi / 180);
+    OcrLine piece(String text, double left, double width, double y, {double height = 24}) {
+      final cx = left + width / 2;
+      final cy = y - cx * slope;
+      final h = height + width * slope.abs();
+      return OcrLine(text, left: left, right: left + width, top: cy - h / 2, bottom: cy + h / 2);
+    }
+
+    const cols = [60.0, 380.0, 500.0, 640.0, 760.0, 900.0, 990.0, 1080.0, 1180.0, 1290.0, 1400.0];
+    const w = [300.0, 100.0, 120.0, 100.0, 130.0, 70.0, 70.0, 80.0, 90.0, 100.0, 100.0];
+    List<OcrLine> row(List<String> cells, double y) => [for (var i = 0; i < cells.length; i++) piece(cells[i], cols[i], w[i], y)];
+    final lines = [
+      piece('ANKUR DISTRIBUTORS', 60, 520, 60, height: 52),
+      piece('TAX INVOICE', 1250, 220, 60),
+      piece('GSTIN: 23AAMFA4233F1ZV   D.L. No.: 20/B1965/96', 60, 800, 120),
+      piece('Invoice No: AD/118', 1100, 300, 120),
+      piece('Date: 14/11/2026', 1100, 300, 150),
+      piece('M/s YASH MEDICAL, NAPIER TOWN, JABALPUR', 60, 700, 190),
+      ...row(['Product', 'HSN', 'Batch', 'Free', 'Qty', 'Exp', 'SGST', 'CGST', 'Rate', 'MRP', 'Amount'], 260),
+      ...row(['BRIKUFF LS JR SYP', '300490', 'BRK26001', '0', '10.0+3.0', '07/27', '2.50', '2.50', '49.92', '65.53', '499.20'], 310),
+      ...row(['PROXIM 500 TAB', '300490', 'PX7788', '0', '6.0+0.0', '09/27', '2.50', '2.50', '81.40', '110.00', '488.40'], 360),
+      ...row(['NEKTRO COLD TAB', '300490', 'NK2210', '0', '12.0+2.0', '03/28', '2.50', '2.50', '18.60', '25.00', '223.20'], 410),
+      piece('Net Amount', 1000, 200, 500),
+      piece('1,210.60', 1250, 150, 500),
+    ];
+    final page = OcrPage(lines);
+    return upsideDown ? page.turned180() : page;
+  }
+
+  group('a real distributor bill, however the photo was taken', () {
+    void expectAnkur(BillDraft d) {
+      expect(d.supplierName, 'Ankur Distributors');
+      expect(d.supplierGstin, '23AAMFA4233F1ZV');
+      expect(d.invoiceNumber, 'AD/118');
+      expect(d.invoiceDate, DateTime(2026, 11, 14));
+      expect(d.lines, hasLength(3));
+      final brikuff = d.lines.first;
+      expect(brikuff.batchNumber, 'BRK26001');
+      expect((brikuff.packs, brikuff.freePacks), (10, 3), reason: '"10.0+3.0" is 10 and 3 free');
+      expect((brikuff.ratePaise, brikuff.mrpPaise), (4992, 6553));
+      expect((brikuff.expiryMonth, brikuff.expiryYear), (7, 2027));
+      final proxim = d.lines[1];
+      expect((proxim.batchNumber, proxim.packs, proxim.ratePaise, proxim.mrpPaise), ('PX7788', 6, 8140, 11000));
+      final nektro = d.lines[2];
+      expect((nektro.batchNumber, nektro.packs, nektro.freePacks), ('NK2210', 12, 2));
+    }
+
+    for (final degrees in [0.0, 6.0, -12.0]) {
+      test('upright, turned $degrees°', () {
+        expectAnkur(SupplierBillParser.parse(ankurBill(degrees: degrees), const []));
+      });
+      test('upside down, turned $degrees°', () {
+        expectAnkur(SupplierBillParser.parse(ankurBill(degrees: degrees, upsideDown: true), const []));
+      });
+    }
+
+    test('the supplier is never a total or a footer line', () {
+      final d = SupplierBillParser.parse(ankurBill(upsideDown: true), const []);
+      expect(d.supplierName, isNot(contains('Net')));
+    });
+
+    test('a photo is judged upside down from its reading, and an upright one is left alone', () {
+      expect(
+          SupplierBillParser.readingScore(ankurBill(upsideDown: true), upsideDown: true),
+          greaterThan(SupplierBillParser.readingScore(ankurBill(upsideDown: true))));
+      expect(
+          SupplierBillParser.readingScore(ankurBill()),
+          greaterThan(SupplierBillParser.readingScore(ankurBill(), upsideDown: true)));
+    });
+
+    test('the text reader\'s own angles tell an upside-down page', () {
+      final lines = [for (final l in ankurBill().lines) OcrLine(l.text, left: l.left, right: l.right, top: l.top, bottom: l.bottom, angle: 179)];
+      expect(OcrPage(lines).looksUpsideDown, isTrue);
+      expect(OcrPage([for (final l in lines) OcrLine(l.text, left: l.left, right: l.right, top: l.top, bottom: l.bottom, angle: 3)]).looksUpsideDown, isFalse);
+      expect(ankurBill().looksUpsideDown, isFalse, reason: 'no angles reported');
+    });
+
+    test('turning twice by half a turn gives the page back (up to where its corner is)', () {
+      final page = ankurBill(degrees: 4);
+      final back = page.turned180().turned180();
+      final dx = back.lines.first.left - page.lines.first.left, dy = back.lines.first.top - page.lines.first.top;
+      for (var i = 0; i < page.lines.length; i++) {
+        expect(back.lines[i].left - page.lines[i].left, closeTo(dx, 0.001));
+        expect(back.lines[i].top - page.lines[i].top, closeTo(dy, 0.001));
+        expect(back.lines[i].text, page.lines[i].text);
+      }
+    });
+  });
+
   group('rows of a turned photo', () {
     for (final degrees in [0.0, 3.0, -5.0, 8.0]) {
       test('$degrees° keeps each medicine with its own figures', () {

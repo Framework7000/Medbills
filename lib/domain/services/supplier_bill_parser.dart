@@ -12,7 +12,7 @@ import 'ocr_text.dart';
 class SupplierBillParser {
   static final _gstin = RegExp(r'\b\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b');
   static final _invoiceNo = RegExp(
-      r'(?:INVOICE|INV|BILL)\s*(?:NO|NUMBER|#)\.?\s*[:.\-]?\s*([A-Z0-9][A-Z0-9\-/]{0,19})');
+      r'(?:INVOICE|INV|BILL|MEMO|VOUCHER|DOC(?:UMENT)?)\.?\s*(?:NO|NUMBER|#)\.?\s*[:.\-]?\s*([A-Z0-9][A-Z0-9\-/]{0,19})');
   static final _labelledDate = RegExp(r'(?:DATE|DATED|DT)\s*[.:]?\s*(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4}|\d{2})\b');
   static final _anyDate = RegExp(r'\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4}|\d{2})\b');
   static final _drugLicence = RegExp(r'\bD\.?\s*L\.?\s*(?:NO\.?|NOS\.?)?\s*[.:]\s*([A-Z0-9][A-Z0-9\-/ ,]{4,48})');
@@ -27,6 +27,10 @@ class SupplierBillParser {
   static const _notSupplier = [
     'INVOICE', 'GSTIN', 'GST NO', 'PHONE', 'MOBILE', 'ORIGINAL', 'DUPLICATE', 'CASH MEMO', 'BILL TO', 'M/S',
     'ESTIMATE', 'CREDIT MEMO', 'BILL OF SUPPLY', 'CHALLAN', 'SUBJECT TO', 'JURISDICTION',
+    // The foot of a bill: totals, tax, bank, terms, signature.
+    'NET AMOUNT', 'NET AMT', 'GRAND TOTAL', 'TOTAL', 'SUB TOTAL', 'AMOUNT', 'ROUND', 'DISCOUNT', 'TAXABLE', 'CGST',
+    'SGST', 'IGST', 'BANK', 'IFSC', 'A/C', 'CHEQUE', 'TERMS', 'DECLARATION', 'SIGNATURE', 'AUTHORI', 'E.&O.E',
+    'GOODS ONCE', 'RECEIVED', 'CUSTOMER', 'PAGE',
   ];
 
   /// [ownGstin] and [ownName] are the shop's own: a bill names the shop it
@@ -40,14 +44,29 @@ class SupplierBillParser {
       final b = _parse(page.turned(clockwise: false), medicines, ownGstin, ownName);
       return _score(a) >= _score(b) ? a : b;
     }
-    return _parse(page, medicines, ownGstin, ownName);
+    final upright = _parse(page, medicines, ownGstin, ownName);
+    // Photographed upside down: the columns come out in reverse order (the
+    // amount first, the batch last) and the header is at the bottom. The
+    // other way round is kept only when it clearly reads better.
+    final upsideDown = _parse(page.turned180(), medicines, ownGstin, ownName);
+    final bonus = page.looksUpsideDown ? 5 : 0;
+    return _score(upsideDown) + bonus > _score(upright) + (page.looksUpsideDown ? 0 : 4) ? upsideDown : upright;
   }
+
+  /// How well [page] reads as a bill the way it is (no turning): for deciding
+  /// whether a photo needs turning half a turn.
+  static int readingScore(OcrPage page, {bool upsideDown = false}) =>
+      _score(_parse(upsideDown ? page.turned180() : page, const [], '', ''));
 
   static int _score(BillDraft d) =>
       d.lines.length * 10 +
       d.lines.where((l) => l.expiryMonth != null && l.batchNumber.isNotEmpty && l.packs > 0).length * 5 +
       (d.invoiceNumber.isEmpty ? 0 : 3) +
       (d.billTotalPaise == null ? 0 : 3);
+
+  /// A count written as 10, 10.0 or 10.00 (quantities are often printed
+  /// with decimals, "10.0+3.0"); a price like 49.92 is not.
+  static bool _isWhole(String n) => !n.contains('.') || RegExp(r'\.0{1,3}$').hasMatch(n);
 
   static BillDraft _parse(OcrPage page, Iterable<Medicine> medicines, String ownGstin, String ownName) {
     final rows = page.rows().map((r) => r.toUpperCase()).toList();
@@ -283,14 +302,14 @@ class SupplierBillParser {
 
     var index = 0;
     int qty = 0, free = 0;
-    if (!numbers[0].contains('.') || numbers[0].endsWith('.00')) {
+    if (_isWhole(numbers[0])) {
       qty = double.parse(numbers[0]).round();
       index = 1;
       // No shop orders thousands of packs on one line: that number is
       // something else (a code, an amount) — leave the quantity to fill in.
       if (qty > maxPacksPerLine) qty = 0;
-      if (numbers.length > 1 && !numbers[1].contains('.')) {
-        final f = int.parse(numbers[1]);
+      if (numbers.length > 1 && _isWhole(numbers[1])) {
+        final f = double.parse(numbers[1]).round();
         if (f <= qty) {
           free = f;
           index = 2;
@@ -316,7 +335,7 @@ class SupplierBillParser {
             return (m - expected).abs() <= expected * 0.02 + 50;
           }));
       if (!addsUp(qty)) {
-        final ints = [for (final n in numbers) if (!n.contains('.') || n.endsWith('.00')) double.parse(n).round()];
+        final ints = [for (final n in numbers) if (_isWhole(n)) double.parse(n).round()];
         final found = ints.indexWhere((q) => q <= maxPacksPerLine && addsUp(q));
         if (found >= 0) {
           qty = ints[found];

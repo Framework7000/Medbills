@@ -242,6 +242,20 @@ GSTIN 23ABZPA1234C1Z5
       expect(SupplierBillParser.parse(page, medicines, ownName: 'Yash Medical').supplierName, 'Shree Ganesh Pharma');
     });
 
+    test('the bill number is read whatever the bill calls it', () {
+      for (final (label, number) in [
+        ('Invoice No: GCC010774', 'GCC010774'),
+        ('Inv. No.: AD/2425/118', 'AD/2425/118'),
+        ('BILL NO. 5521', '5521'),
+        ('Cash Memo No : CM-77', 'CM-77'),
+        ('Voucher No.  V/0098', 'V/0098'),
+        ('Invoice Number - 1180', '1180'),
+      ]) {
+        final page = OcrPage.fromText('SHREE GANESH PHARMA\n$label\n1  XYZOCIN 250 TAB  XZ7781  08/27  6  80.00  58.00');
+        expect(SupplierBillParser.parse(page, medicines).invoiceNumber, number, reason: label);
+      }
+    });
+
     test('a supplier written out after a label is taken as it is', () {
       final page = OcrPage.fromText('''
 CREDIT BILL

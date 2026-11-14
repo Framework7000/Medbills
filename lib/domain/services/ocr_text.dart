@@ -61,6 +61,31 @@ class OcrPage {
     ]);
   }
 
+  /// The same reading with every box turned half a turn: a bill photographed
+  /// upside down has its columns in reverse order and its header at the
+  /// bottom, until the boxes are turned back.
+  OcrPage turned180() {
+    if (lines.isEmpty) return this;
+    final maxX = lines.map((l) => l.right).reduce((a, b) => a > b ? a : b);
+    final maxY = lines.map((l) => l.bottom).reduce((a, b) => a > b ? a : b);
+    return OcrPage([
+      for (final l in lines)
+        OcrLine(l.text,
+            left: maxX - l.right,
+            right: maxX - l.left,
+            top: maxY - l.bottom,
+            bottom: maxY - l.top,
+            angle: l.angle > 0 ? l.angle - 180 : l.angle + 180),
+    ]);
+  }
+
+  /// The text reader reports each line's angle: lines of an upside-down photo
+  /// are all about ±180°. False when no angles were reported.
+  bool get looksUpsideDown {
+    final angles = [for (final l in lines) if (l.angle != 0 && l.text.trim().length >= 6) l.angle.abs()]..sort();
+    return angles.length >= 4 && angles[angles.length ~/ 2] > 135;
+  }
+
   /// How much readable text there is (letters and digits), to compare two
   /// readings of the same photo turned different ways.
   int get readableChars => lines.fold(0, (s, l) => s + l.text.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').length);

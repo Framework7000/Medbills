@@ -3,6 +3,21 @@
 Read this first, then `README.md`. Branch: `claude/medbills-repo-t8ueeh`
 (GitHub: Framework7000/Medbills). Everything below is pushed.
 
+## 14 Nov 2026: bill photographed upside down (found on a real bill)
+
+A screen recording of a real Ankur Distributors bill showed: supplier read
+as "Net Amount", one line with no batch and qty 0, and raw text with the
+columns in reverse (amount first, batch last). The photo was upside down:
+ML Kit reads each line's text correctly but its position is turned, so rows
+came out right-to-left and the header was at the bottom. Fixes:
+`OcrPage.turned180()` / `looksUpsideDown`; `SupplierBillParser.parse` also
+tries the page turned half a turn and keeps it when it clearly reads better;
+`prepareBillPhoto` turns the photo 180° and re-reads it (so the kept picture
+is upright). Also: quantities printed "10.0+3.0" (decimal zero) are counts;
+footer words (Net Amount, Total, Bank…) are never a supplier; bill numbers
+labelled Inv. No./Memo No./Voucher No. are read. Test:
+`test/domain/bill_reading_test.dart` ("a real distributor bill").
+
 ## 10 Nov 2026: edit a bill, Cash + UPI, sturdier supplier-bill reading
 
 - **Edit a bill** (Bills → open a bill → Edit; owner/pharmacist only, not

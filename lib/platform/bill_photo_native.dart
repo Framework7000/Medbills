@@ -5,6 +5,7 @@ import 'package:image/image.dart' as img;
 
 import '../domain/services/ocr_text.dart';
 import '../domain/services/photo_clean.dart';
+import '../domain/services/supplier_bill_parser.dart';
 import 'device_features.dart';
 import 'photo_compress.dart';
 import 'text_reader.dart';
@@ -61,6 +62,7 @@ Future<({Uint8List? jpeg, OcrPage? page, OcrPage? cleaned})> prepareBillPhoto(Ui
   if (!DeviceFeatures.textReading) return (jpeg: await compressPhoto(upright), page: null, cleaned: null);
 
   var best = upright;
+  var turnedBy = 0; // degrees the photo was turned from how the phone saved it
   var page = await _read(upright, '0');
   // Text running up the page: the bill was photographed on its side.
   // Try both quarter turns and keep whichever reads best.
@@ -72,6 +74,27 @@ Future<({Uint8List? jpeg, OcrPage? page, OcrPage? cleaned})> prepareBillPhoto(Ui
       if (p != null && p.uprightScore > (page?.uprightScore ?? 0) && p.readableChars >= (page?.readableChars ?? 0) * 0.6) {
         page = p;
         best = turned;
+        turnedBy = turn;
+      }
+    }
+  }
+  // Upside down (the text reader reports every line at about 180°, or the
+  // table's columns read in reverse, the amount first and the batch last):
+  // turn the photo half a turn and read it again, so the picture kept with
+  // the bill is the right way up too. Kept only if it reads at least as well.
+  final first = page;
+  if (first != null && !first.isEmpty) {
+    final upsideDown = first.looksUpsideDown ||
+        SupplierBillParser.readingScore(first, upsideDown: true) > SupplierBillParser.readingScore(first) + 4;
+    if (upsideDown) {
+      final flipped = await compute(_upright, (bytes, (turnedBy + 180) % 360));
+      final p = flipped == null ? null : await _read(flipped, 'flip');
+      if (flipped != null &&
+          p != null &&
+          p.readableChars >= first.readableChars * 0.6 &&
+          SupplierBillParser.readingScore(p) >= SupplierBillParser.readingScore(first)) {
+        page = p;
+        best = flipped;
       }
     }
   }
